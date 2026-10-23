@@ -291,7 +291,12 @@ def build_state(
             cands = ["ets", "gbm"] if (mode == "full" and hist_days >= 240) else ["ets"]
         else:
             cands = [model if model in MODEL_FACTORIES else "ets"]
-        model_name, e_in, e_out, scores = _select_model(r_in_w, r_out_w, err_h, cands, seed)
+        try:
+            model_name, e_in, e_out, scores = _select_model(r_in_w, r_out_w, err_h, cands, seed)
+        except Exception as exc:  # noqa: BLE001 — модель не должна ронять прогноз
+            log.warning("model selection failed: %s", type(exc).__name__)
+            model_name, e_in, e_out, scores = _select_model(r_in_w, r_out_w, err_h, ["ets"], seed)
+            warnings.append("Сложная модель не обучилась на этих данных — использована сезонная.")
         scale = 1.0 if mode == "full" else 1.5
         if len(e_in) < 8:
             scale = max(scale, 1.5)

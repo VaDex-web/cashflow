@@ -142,6 +142,7 @@ class GBMFlow:
     name: str = "gbm"
     model: Any = None
     max_lead: int = 30
+    _cols: Any = None
     _fallback: SeasonalProfile = field(default_factory=SeasonalProfile)
 
     def _features(self, y_vals: np.ndarray, c: np.ndarray, idx: pd.DatetimeIndex, t_pos: np.ndarray,
@@ -178,10 +179,16 @@ class GBMFlow:
         t_pos, o_pos = np.concatenate(t_list), np.concatenate(o_list)
         X = self._features(y.values, c, ext_idx, t_pos, o_pos, cal)
         target = y.values[t_pos]
+        # признаки без вариации (например, «год назад» при короткой истории) ломают биннинг
+        self._cols = np.array([np.unique(col[np.isfinite(col)]).size >= 2 for col in X.T])
+        X = X[:, self._cols]
         self.model = HistGradientBoostingRegressor(
             loss="poisson", learning_rate=0.08, max_iter=150, max_leaf_nodes=15, min_samples_leaf=30,
             l2_regularization=1.0, random_state=self.seed)
-        self.model.fit(X, np.maximum(target, 0.0))
+        try:
+            self.model.fit(X, np.maximum(target, 0.0))
+        except ValueError:
+            self.model = None
         return self
 
     def forecast(self, y: pd.Series, horizon: int) -> np.ndarray:
@@ -195,7 +202,7 @@ class GBMFlow:
         o_pos = np.full(horizon, n - 1)
         X = self._features(y.values, c, ext_idx, t_pos, o_pos, cal)
         X[:, 0] = np.minimum(X[:, 0], self.max_lead)  # за пределами обученных горизонтов — как на 30-м дне
-        return np.maximum(self.model.predict(X), 0.0)
+        return np.maximum(self.model.predict(X[:, self._cols]), 0.0)
 
 
 MODEL_FACTORIES = {
