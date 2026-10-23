@@ -1,32 +1,44 @@
-# React + TypeScript + Vite
+# web/ — интерфейс «Денежный прогноз»
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+React + Vite + TypeScript + Recharts. Контракт API — [`../docs/contract.md`](../docs/contract.md).
 
-Currently, two official plugins are available:
+## Запуск
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```bash
+cd web
+npm install
+cp .env.example .env      # VITE_USE_MOCK=true — работает без бэкенда
+npm run dev               # http://localhost:5173
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+- **Мок-режим** (`VITE_USE_MOCK=true`, по умолчанию): данные из `../docs/mock/*.json`, вход — любой логин/пароль.
+- **Реальный API** (`VITE_USE_MOCK=false`): запросы `/api/*` Vite проксирует на `http://localhost:8000`
+  (другой адрес — `API_URL=http://host:port npm run dev`). Токен JWT хранится в `localStorage` и уходит в `Authorization: Bearer`.
+- Метрики на странице «Качество прогноза» берутся из `../core/reports/metrics.json`, если файл есть; иначе — мок с пометкой «подставить».
+
+Сборка: `npm run build` → `dist/`.
+
+## Экраны
+
+| путь | что |
+|---|---|
+| вход | логин, JWT |
+| `/upload` | загрузка CSV (drag-and-drop, проверка файла в браузере, понятные ошибки) |
+| `/` | светофор «хватит ли денег», график остатка (ожидаемый + возможный диапазон, зона ниже нуля, маркеры платежей), предупреждения с рекомендациями |
+| `/scenarios` | «что если»: 4 сценария, базовый и негативный прогноз на одном графике |
+| `/plan-fact` | план vs факт по неделям, просроченные платежи, «Пересчитать прогноз» |
+| `/events` | ожидаемые платежи с источником, подключение/синхронизация источников, ручной ввод с шаблонами |
+| `/operations` | расходы/доходы по категориям, регулярные платежи, таблица операций с поиском |
+| `/quality` | метрики и сравнение моделей, прогноз против факта на бэктесте |
+
+## Структура
+
+```
+src/
+  types.ts            типы по контракту
+  api/client.ts       клиент API + переключатель моков
+  api/mock.ts         заглушка (в т.ч. приближённый пересчёт сценариев в браузере)
+  components/         график, светофор, предупреждения, подсказки «как посчитано»
+  pages/              экраны
+  lib/                форматирование ₽ и дат по-русски, сессия, загрузка данных
+```

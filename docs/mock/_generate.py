@@ -206,13 +206,16 @@ def transactions():
     while day <= TODAY:
         if day.weekday() < 6:
             for _ in range(rnd.randint(1, 3)):
-                if rnd.random() < 0.45:
+                if rnd.random() < 0.4:
                     n, inn, p, c = rnd.choice(cps_in)
-                    amt = rnd.choice([58_000, 61_500, 140_000, 72_300]) if "эквайринг" in n else rnd.randint(9, 30) * 10_000
+                    amt = rnd.choice([58_000, 61_500, 140_000, 72_300]) if "эквайринг" in n else rnd.randint(4, 14) * 10_000
                     direction = "in"
                 else:
-                    n, inn, p, c = rnd.choice(cps_out)
-                    amt = rnd.randint(3, 60) * 1_000
+                    n, inn, p, c = rnd.choices(cps_out, weights=[8, 0.6, 1, 1.2, 2, 4, 0.6, 1])[0]
+                    lo, hi = {"Закупка товара": (80, 320), "Аренда": (185, 185), "Налоги и взносы": (40, 170),
+                              "Зарплата": (60, 200), "Кредиты": (96, 97), "Связь и ПО": (3, 7),
+                              "Транспорт и топливо": (8, 25), "Ремонт и обслуживание": (10, 45)}[c]
+                    amt = rnd.randint(lo, hi) * 1_000
                     direction = "out"
                 bal += amt if direction == "in" else -amt
                 rows.append({"date": day.isoformat(), "amount": amt, "direction": direction,
