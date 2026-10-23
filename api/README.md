@@ -21,7 +21,7 @@ uvicorn api.main:app --reload --port 8000 # http://localhost:8000/docs
 |---|---|---|
 | `USE_STUB_CORE` | `false` | `true` — ядро-заглушка (ответы из `docs/mock/*.json`, та же сигнатура), `false` — настоящий `cashflow_core`; если ядро не импортируется, включается заглушка и пишется предупреждение в лог |
 | `CORE_PATH` | `core/` | где лежит пакет `cashflow_core` |
-| `API_USERS` | `demo:demo` | пользователи `логин:пароль,…` (создаются при старте, пароли — PBKDF2-хэши) |
+| `API_USERS` | `demo:demo:S02` | пользователи `логин:пароль[:компания],…` (создаются при старте, пароли — PBKDF2-хэши); компания открывается после входа |
 | `JWT_SECRET` | генерируется в `api/data/.jwt_secret` | секрет подписи токенов; `JWT_TTL_MINUTES` — срок жизни (720) |
 | `DATABASE_URL` | `sqlite:///api/data/cashflow.db` | хранилище (SQLAlchemy) |
 | `MAX_UPLOAD_MB` | `20` | лимит размера файла (413 с понятным текстом) |
@@ -38,7 +38,11 @@ uvicorn api.main:app --reload --port 8000 # http://localhost:8000/docs
 | POST | `/auth/login` | `{username, password}` → `{access_token, token_type}` |
 | GET | `/health` | `{status: "ok", core: "cashflow_core 0.1.0"}` |
 | POST | `/companies` | multipart `file` (CSV) → `{company_id, rows, warnings}`; `?company=C009` — выбрать компанию из `all_operations.csv` |
-| GET | `/companies` | компании датасета (`data/raw/companies.csv`), демо (`data/synthetic/companies.csv`) и загруженные пользователем |
+| GET | `/companies` | **своя компания** (один пользователь = одна компания); `?demo=true` — скрытый демо-режим: плюс компании датасета (`data/raw/companies.csv`) и демо (`data/synthetic/companies.csv`) |
+| GET · PUT | `/me` | `{username, company_id, company_name}`; PUT `{company_id}` — демо-режим: сделать компанию датасета своей |
+| GET · PUT | `/companies/{id}/settings` | комфортный минимум на счёте (`safety_cushion`, `null` — по умолчанию расходы за 7 дней) и налоговый режим; риск считается от комфортного минимума |
+| POST | `/predict?horizon=30&format=json\|csv` | **без входа**: CSV в формате датасета (одна или несколько компаний) → прогноз остатка по дням от последней даты каждой компании и риски разрывов; ничего не сохраняется (`PUBLIC_PREDICT=false` — отключить) |
+| GET | `/metrics` · `/metrics/sources` | для раздела «Как это работает»: бэктест ядра (`core/reports/metrics.json`) и вклад источников |
 | GET | `/companies/{id}/forecast?horizon=30` | `ForecastResult` (горизонт 7–365) |
 | GET | `/companies/{id}/alerts` · `/recurring` · `/categories` | риски · регулярные платежи · категории (`?limit=` — последних операций) |
 | GET · POST | `/companies/{id}/events` | `Event[]` · добавить событие (ручной ввод) |
@@ -52,8 +56,35 @@ uvicorn api.main:app --reload --port 8000 # http://localhost:8000/docs
 | GET | `/companies/{id}/integrations` | источники, их состояние и число событий |
 | GET | `/companies/{id}/counterparties/checks` | проверка контрагентов по открытым реестрам |
 
-Компании `C001…C150` (датасет) и `S01…S05` (демо) доступны без загрузки — выписка читается из файла при первом
-обращении. Загруженные компании видит только владелец (403 для остальных).
+**Один пользователь = одна компания.** После входа `GET /companies` возвращает только компанию пользователя
+(из `API_USERS` или последнюю загруженную выписку). Компании `C001…C150` (датасет) и `S01…S05` (демо) — только в
+скрытом демо-режиме (`?demo=true`, `PUT /me`), выписка читается из файла при первом обращении. Загруженные компании
+видит только владелец (403 для остальных).
+
+**Комфортный минимум (подушка безопасности).** По умолчанию — расходы примерно за 7 дней (средние за последние
+90 дней, без переводов между своими счетами); владелец может задать свой. Он передаётся в ядро как порог риска
+(`threshold`), в `warnings` прогноза объясняется простыми словами. Для метрик качества порог — 0 ₽.
+
+## Прогноз для контрольного датасета (без входа и интерфейса)
+
+```bash
+python -m api.predict data/raw/statements --horizon 30 --out predictions.csv --workers 4
+python -m api.predict data/raw/all_operations.csv --out out/pred.csv      # один файл со всеми компаниями
+python -m api.predict file.csv --api http://localhost:8000                 # то же через POST /api/predict
+curl -F file=@data/raw/statements/C001.csv 'localhost:8000/api/predict?horizon=30&format=csv'
+```
+
+* Для каждой компании — последняя дата её выписки, прогноз на `horizon` дней только по операциям до этой даты
+  (без событий из источников, порог разрыва 0 ₽, seed 42, 2000 траекторий) — то же, что `python -m cashflow_core.predict`.
+* `predictions.csv` — `company_id;date;balance_forecast;balance_low;balance_high` (ожидаемый остаток и границы
+  возможного диапазона, P10–P90); `predictions_risks.json` — по компаниям: `as_of`, `current_balance`,
+  `risks: [{date, shortfall_amount, probability, severity}]`, `warnings`.
+* Вход — CSV в формате датасета (`data/raw/README.md`); папка — все выписки в ней (справочник пропускается,
+  отдельная выписка компании важнее `all_operations.csv`). Короткая история, пропуски, пустые ИНН и назначения,
+  овердрафт не роняют прогон: что не посчиталось — в `warnings`, в крайнем случае — неизменный остаток.
+* Детерминированно: повторный запуск даёт тот же CSV побайтно.
+* Скорость (замер на датасете организаторов): все 150 компаний — **85 с** на 4 процессах (`--workers 4`),
+  одна компания — 2–4 с; падений и «запасных» прогнозов — 0.
 
 ## Источники данных (`api/integrations/`)
 
@@ -75,6 +106,9 @@ uvicorn api.main:app --reload --port 8000 # http://localhost:8000/docs
 оплаты: долг по налогам …»), а прогноз строится со сценарием ядра `client_delay` на `REGISTRY_DELAY_DAYS`:
 все ожидаемые поступления от него (регулярные и события) сдвигаются, причина — в `warnings`. В событиях для ядра
 есть поля `risk` и `delay_probability`.
+
+Тексты для владельца — без жаргона: в сообщениях и предупреждениях только «ожидаемый остаток», суммы в ₽ и даты
+по-русски; демонстрационные данные реестров помечены «(демонстрационные данные)».
 
 Тестовые данные источников для демо-компаний — `data/synthetic/integrations/<id>/`; для загруженной копии
 (`s02-xxxxxx`) берутся данные исходной компании. Отчёт о вкладе источников — [`reports/sources_effect.md`](reports/sources_effect.md).
@@ -111,17 +145,31 @@ SQLite (SQLAlchemy): `companies`, `transactions`, `events` (статус, фак
 ## Тесты и отчёты
 
 ```bash
-CORE_PATH=core python -m pytest api/tests -q              # 36 тестов, ~15 с (без ядра тесты на настоящем ядре пропускаются)
+CORE_PATH=core python -m pytest api/tests -q              # 55 тестов, ~40 с (без ядра тесты на настоящем ядре пропускаются)
+python -m api.reports.split                               # разбиение компаний датасета на dev / holdout
+python -m api.reports.calibrate_tax                       # единственный подбираемый параметр источников — только на dev
 CORE_PATH=core python -m api.reports.sources_effect       # отчёт о вкладе источников (~20 мин на 4 ядрах)
 CORE_PATH=core python -m api.reports.demo_candidates      # компании датасета с разрывом через 7–21 день → reports/demo_candidates.md
 python data/synthetic/generate.py                         # демо-данные
 ```
+
+## Честная проверка
+
+* Никаких правил под конкретные компании: источники работают по смыслу назначений и по ИНН/названию из самих
+  документов, а не по списку известных контрагентов; `company_id` нигде не используется как признак.
+* Компании датасета разделены на dev и holdout (`api/reports/split.py`; если ядро сохранит своё разбиение в
+  `core/reports/split.json`, берётся оно). Параметр налогового календаря (доля налогов от зарплаты, 0,42) подобран
+  только на dev; бэктест источников в `reports/sources_effect.md` — только holdout.
+* В бэктесте признаки и события считаются только по операциям до даты отсечки; остатки будущих дней не используются.
+* Устойчивость: `api/tests/test_robustness.py` прогоняет весь конвейер API на выписках из 1 и 5 операций, только
+  с поступлениями, без ИНН и назначений, с овердрафтом, дублями, пропуском в несколько недель.
 
 ## Демо (S02 — B2B-услуги, разрыв через 13 дней)
 
 ```bash
 T=$(curl -s localhost:8000/api/auth/login -H 'Content-Type: application/json' -d '{"username":"demo","password":"demo"}' | python -c 'import sys,json;print(json.load(sys.stdin)["access_token"])')
 H="Authorization: Bearer $T"
+curl -s -X PUT -H "$H" -H 'Content-Type: application/json' localhost:8000/api/companies/S02/settings -d '{"safety_cushion": 0}'   # порог 0 ₽, как в метриках
 curl -s -H "$H" localhost:8000/api/companies/S02/alerts                       # по выписке: 5 ноября, ~15%
 for s in tax_calendar 1c bank registry; do curl -s -X POST -H "$H" localhost:8000/api/companies/S02/integrations/$s/sync; done
 curl -s -H "$H" localhost:8000/api/companies/S02/alerts                       # с источниками: 5 ноября, ~90%

@@ -102,6 +102,39 @@ def put_settings(cid: str, body: CompanySettingsIn, user: str = Depends(current_
     return svc.update_settings(session, svc.get_company(session, cid, user), body.model_dump(exclude_unset=True))
 
 
+# --------------------------------------------------------------------------- прогноз для проверки (без входа)
+@router.post("/predict", tags=["проверка"], summary="Прогноз по файлу без входа: остаток по дням и риски для каждой компании",
+             description="Для тестов и контрольного датасета. Вход — CSV в формате датасета организаторов (одна или "
+                         "несколько компаний). Для каждой компании прогноз строится от её последней даты, без данных из "
+                         "будущего и без источников, seed фиксирован. Ответ `format=json` — {forecast: [{company_id, date, "
+                         "balance_forecast, balance_low, balance_high}], companies: [{company_id, as_of, risks: [{date, "
+                         "shortfall_amount, probability, severity}], warnings}]}; `format=csv` — только таблица прогноза. "
+                         "То же из командной строки: `python -m api.predict <csv|папка> --horizon 30 --out predictions.csv`. "
+                         "Ничего не сохраняется.")
+async def predict(request: Request, file: UploadFile = File(...), horizon: int = Query(30, ge=1, le=365),
+                  format: Literal["json", "csv"] = "json") -> Any:
+    from fastapi.concurrency import run_in_threadpool
+    from fastapi.responses import PlainTextResponse
+
+    from . import predict as pr
+
+    if not get_settings().public_predict:
+        raise HTTPException(403, "Прогноз без входа отключён на этом сервере")
+    raw = await read_upload(file, request)
+    try:
+        companies = {cid: df for cid, df in _split_companies(pr.read_csv_bytes(raw, file.filename or "файл")).items()}
+    except pr.PredictError as exc:
+        raise HTTPException(400, str(exc)) from None
+    rows, meta = await run_in_threadpool(pr.run, companies, horizon, 1, get_settings().n_sims)
+    if format == "csv":
+        return PlainTextResponse(pr.to_csv(rows), media_type="text/csv; charset=utf-8")
+    return {"forecast": rows, **meta}
+
+
+def _split_companies(df: Any) -> dict[str, Any]:
+    return {str(cid): part.reset_index(drop=True) for cid, part in df.groupby(df["company_id"].str.strip(), sort=True)}
+
+
 # --------------------------------------------------------------------------- «Как это работает» (для жюри)
 @router.get("/metrics", tags=["как это работает"], summary="Качество прогноза: бэктест ядра (core/reports/metrics.json)")
 def metrics(user: str = Depends(current_user)) -> Any:
