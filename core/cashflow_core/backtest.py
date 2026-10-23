@@ -67,8 +67,9 @@ def _baseline(daily_hist: pd.DataFrame, name: str, H: int, n_sims: int, seed: in
     return OriginForecast(b0 + np.cumsum(net, axis=1), p_in, p_out)
 
 
-def _hybrid(tx: pd.DataFrame, origin: date, H: int, n_sims: int, seed: int, model: str) -> OriginForecast:
-    st = build_state(tx, [], H, as_of=origin, n_sims=n_sims, seed=seed, model=model)
+def _hybrid(tx: pd.DataFrame, origin: date, H: int, n_sims: int, seed: int, model: str,
+            interval_scale: float = 1.0) -> OriginForecast:
+    st = build_state(tx, [], H, as_of=origin, n_sims=n_sims, seed=seed, model=model, interval_scale=interval_scale)
     plan = build_plan(st, H)
     sim = simulate(st, plan)
     return OriginForecast(sim.balances, sim.det_in + plan.res_in, sim.det_out + plan.res_out)
@@ -167,6 +168,7 @@ def backtest(df: Any, *, horizon: int = 30, n_origins: int = 8, step: int = 21, 
         for m in models:
             t0 = time.time()
             try:
+                # бэктест меряет «сырую» модель (масштаб 1.0); калибровка оценивается отдельно
                 if m == "hybrid":
                     fc = _hybrid(tx, o, H, n_sims, seed, hybrid_model)
                 elif m.startswith("hybrid_"):
@@ -186,6 +188,7 @@ def backtest(df: Any, *, horizon: int = 30, n_origins: int = 8, step: int = 21, 
                 "abs_actual": np.abs(target).tolist(),
                 "covered": ((target >= q[0]) & (target <= q[2])).tolist(),
                 "width": (q[2] - q[0]).tolist(),
+                "lo_off": (q[1] - q[0]).tolist(), "hi_off": (q[2] - q[1]).tolist(),
                 "in_err": (fc.exp_in - act["inflow"]).tolist(), "in_act": act["inflow"].tolist(),
                 "out_err": (fc.exp_out - act["outflow"]).tolist(), "out_act": act["outflow"].tolist(),
                 "p_gap": p_gap.tolist(),
@@ -291,6 +294,44 @@ def aggregate(results: list[dict[str, Any]]) -> dict[str, Any]:
         out["_recurring"] = {"expected_payments": n, "hit_rate_pm3d": round(hits / n, 4) if n else None,
                              "amount_mape_median": round(float(np.median(ape)), 4) if ape else None}
     return out
+
+
+def calibrate_interval_scale(results: list[dict[str, Any]], model: str = "hybrid", target: float = 0.8,
+                             grid: Iterable[float] = tuple(np.round(np.arange(0.8, 3.01, 0.05), 2))) -> dict[str, Any]:
+    """Подобрать множитель ширины интервала на РАННИХ отсечках каждой компании и проверить на ПОЗДНИХ.
+
+    Интервал после калибровки: [p50 − k·(p50 − P10), p50 + k·(P90 − p50)]. Если в записях нет
+    отдельных границ (старый формат), используется симметричное приближение width/2 — это помечается.
+    """
+    early, late = [], []
+    exact = True
+    for r in results:
+        recs = sorted(r["records"].get(model, []), key=lambda x: x["origin"])
+        half = len(recs) // 2
+        early += recs[:half]
+        late += recs[half:]
+    if not early or not late:
+        return {"k": 1.0, "note": "мало отсечек для калибровки"}
+
+    def cover(recs: list[dict[str, Any]], k: float) -> float:
+        nonlocal exact
+        hits = tot = 0
+        for x in recs:
+            e = np.array(x["err"])  # p50 − факт
+            if "lo_off" in x:
+                lo, hi = np.array(x["lo_off"]), np.array(x["hi_off"])
+            else:
+                exact = False
+                lo = hi = np.array(x["width"]) / 2
+            hits += int(((e <= k * lo) & (-e <= k * hi)).sum())
+            tot += len(e)
+        return hits / max(tot, 1)
+
+    best = min(grid, key=lambda k: abs(cover(early, k) - target))
+    return {"k": float(best), "target": target,
+            "coverage_early_before": round(cover(early, 1.0), 4), "coverage_early_after": round(cover(early, best), 4),
+            "coverage_late_before": round(cover(late, 1.0), 4), "coverage_late_after": round(cover(late, best), 4),
+            "n_early": len(early), "n_late": len(late), "exact": exact}
 
 
 def compare_models(df: Any, **kwargs: Any) -> pd.DataFrame:

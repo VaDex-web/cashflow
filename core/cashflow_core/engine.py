@@ -30,7 +30,7 @@ from .flows import MODEL_FACTORIES, error_paths
 from .io import load_statement, to_daily
 from .log import get_logger
 from .recurring import RecurringPattern, find_patterns
-from .schema import EVENT_SOURCES, EVENT_STATUSES, EVENT_TYPES
+from .schema import EVENT_SOURCES, EVENT_STATUSES, EVENT_TYPES, INTERVAL_SCALE
 from .taxes import TaxModel, fit_tax_model
 
 log = get_logger(__name__)
@@ -221,6 +221,7 @@ def build_state(
     threshold: float = 0.0,
     as_of: date | None = None,
     categorizer: Categorizer | None = None,
+    interval_scale: float | None = None,
 ) -> ForecastState:
     """Подготовить состояние прогноза (очистка, категории, паттерны, модели, ошибки).
 
@@ -230,6 +231,7 @@ def build_state(
         horizon: горизонт (дней), минимум 30 рекомендуется.
         model: "auto" | "ets" | "gbm" | "naive" — модель остаточных потоков.
         threshold: порог «разрыва» (по умолчанию остаток < 0).
+        interval_scale: множитель ширины интервалов (по умолчанию калиброванный :data:`schema.INTERVAL_SCALE`).
         as_of: обрезать историю этой датой (для бэктеста).
     """
     t0 = time.time()
@@ -335,7 +337,7 @@ def build_state(
         raw_in=r_in, raw_out=r_out,
         models=models, err_in=e_in, err_out=e_out, err_scale=scale, events=ev, mode=mode, warnings=warnings,
         settings={"horizon": horizon, "n_sims": int(n_sims), "seed": int(seed), "threshold": float(threshold),
-                  "model": model},
+                  "model": model, "interval_scale": float(INTERVAL_SCALE if interval_scale is None else interval_scale)},
         model_scores=scores, fitted_as_of=as_of_d,
         hist_min_balance=float(daily["balance"].min()), excluded_tax_from_residual=exclude_tax,
     )
@@ -487,6 +489,12 @@ def simulate(state: ForecastState, plan: Plan, n_sims: int | None = None, seed: 
         res_out = (plan.res_out[None, :] + state.err_scale * sd_out * rng0.standard_normal((n, H))) * plan.out_mult[None, :]
     total = flows + res_in - res_out + plan.extra[None, :]
     balances = plan.start_balance + np.cumsum(total, axis=1)
+    k = float(state.settings.get("interval_scale", INTERVAL_SCALE))
+    if k != 1.0:
+        # калибровка ширины: растягиваем траектории вокруг медианы (квантили масштабируются точно,
+        # вероятности разрыва меняются согласованно с интервалами)
+        med = np.median(balances, axis=0, keepdims=True)
+        balances = med + k * (balances - med)
     return SimResult(balances=balances, det_in=det_in, det_out=det_out)
 
 

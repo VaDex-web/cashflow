@@ -64,6 +64,8 @@ class SeasonalProfile:
     profile_days: int = 182
     use_yoy: bool = True
     yoy_shrink: float = 0.8
+    yoy_max: float = 5.0          # ограничение годового коэффициента сверху
+    yoy_eps_share: float = 0.0    # сглаживание: + доля среднего за год к числителю и знаменателю
     name: str = "ets"
 
     def fit(self, y: pd.Series) -> "SeasonalProfile":
@@ -123,13 +125,21 @@ class SeasonalProfile:
             c = np.concatenate([[0.0], np.cumsum(y.values)])
             n = len(y)
             base_ly = _window_mean(c, n - 364 - 28, n - 364)
-            if np.isfinite(base_ly) and base_ly > 0:
+            eps = self.yoy_eps_share * float(np.mean(y.values[-364:]))
+            if np.isfinite(base_ly) and base_ly + eps > 0:
                 for k in range(horizon):
                     j = n + k - 364  # индекс «того же дня» год назад (52 недели)
                     tgt = _window_mean(c, j - 3, j + 4)
                     if np.isfinite(tgt):
-                        r = float(np.clip(tgt / base_ly, 0.2, 5.0)) ** self.yoy_shrink
+                        r = float(np.clip((tgt + eps) / (base_ly + eps), 1 / self.yoy_max, self.yoy_max)) ** self.yoy_shrink
                         pred[k] *= r
+                if level <= 0 and eps > 0:
+                    # «мёртвый сезон»: уровень ≈ 0, но год назад в эти дни были деньги — берём их как прогноз
+                    for k in range(horizon):
+                        j = n + k - 364
+                        tgt = _window_mean(c, j - 3, j + 4)
+                        if np.isfinite(tgt):
+                            pred[k] = max(pred[k], tgt * self.yoy_shrink)
         return np.maximum(pred, 0.0)
 
 
