@@ -154,6 +154,7 @@ compare_models(df) -> таблица метрик
 | метод | путь | тело / параметры | ответ |
 |---|---|---|---|
 | POST | `/auth/login` | `{username, password}` | `{access_token, token_type: "bearer"}` |
+| POST | `/auth/demo` | — | `{access_token, token_type: "bearer"}` — демо-вход в один клик: гость со своей копией демо-компании |
 | GET | `/health` | — | `{status: "ok"}` |
 | POST | `/companies` | multipart, поле `file` (CSV) | `{company_id}` |
 | GET | `/companies` | — | список из `companies.csv`: `[{company_id, company_name, legal_form, industry, first_operation_date, last_operation_date, operations_count}]` — чтобы в демо выбрать компанию из датасета без загрузки файла |

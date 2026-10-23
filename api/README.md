@@ -22,6 +22,11 @@ uvicorn api.main:app --reload --port 8000 # http://localhost:8000/docs
 | `USE_STUB_CORE` | `false` | `true` — ядро-заглушка (ответы из `docs/mock/*.json`, та же сигнатура; только для разработки), `false` — настоящий `cashflow_core`; если ядро не импортируется, API **не стартует** и пишет, что установить |
 | `CORE_PATH` | `core/` | где лежит пакет `cashflow_core` |
 | `API_USERS` | `demo:demo:S02` | пользователи `логин:пароль[:компания],…` (создаются при старте, пароли — PBKDF2-хэши); компания открывается после входа |
+| `DEMO_COMPANY` | `S02` | демо-вход в один клик (`POST /auth/demo`): каждому гостю — своя копия этой компании; пусто — выключено |
+| `DEMO_WARMUP` | `false` | `true` — при старте подготовить демо-шаблон (источники + прогноз), чтобы демо открывалось сразу (в docker — `true`) |
+| `DEMO_TTL_HOURS` | `24` | через сколько часов удалять гостей и их копии |
+| `RATE_LIMIT_PER_MIN`, `RATE_LIMIT_HEAVY_PER_MIN` | `300`, `20` | запросов в минуту с одного IP: всего / вход, загрузка файлов, прогноз без входа (429 с понятным текстом) |
+| `TRUST_PROXY` | `false` | брать IP клиента из `X-Forwarded-For` (за Caddy — `true`) |
 | `JWT_SECRET` | генерируется в `api/data/.jwt_secret` | секрет подписи токенов; `JWT_TTL_MINUTES` — срок жизни (720) |
 | `DATABASE_URL` | `sqlite:///api/data/cashflow.db` | хранилище (SQLAlchemy) |
 | `MAX_UPLOAD_MB` | `20` | лимит размера файла (413 с понятным текстом) |
@@ -31,11 +36,12 @@ uvicorn api.main:app --reload --port 8000 # http://localhost:8000/docs
 
 ## Эндпоинты
 
-Префикс `/api`, все кроме `/health` и `/auth/login` — с `Authorization: Bearer <token>`. Ошибки — `{"detail": "текст на русском"}`.
+Префикс `/api`, все кроме `/health`, `/auth/login`, `/auth/demo` и `/predict` — с `Authorization: Bearer <token>`. Ошибки — `{"detail": "текст на русском"}`.
 
 | метод | путь | что |
 |---|---|---|
 | POST | `/auth/login` | `{username, password}` → `{access_token, token_type}` |
+| POST | `/auth/demo` | без тела → `{access_token, token_type}`: гость со своей копией демо-компании (источники подключены, прогноз готов) |
 | GET | `/health` | `{status: "ok", core: "cashflow_core 0.1.0"}` |
 | POST | `/companies` | multipart `file` (CSV) → `{company_id, rows, warnings}`; `?company=C009` — выбрать компанию из `all_operations.csv` |
 | GET | `/companies` | **своя компания** (один пользователь = одна компания); `?demo=true` — скрытый демо-режим: плюс компании датасета (`data/raw/companies.csv`) и демо (`data/synthetic/companies.csv`) |
@@ -130,12 +136,14 @@ curl -F file=@data/raw/statements/C001.csv 'localhost:8000/api/predict?horizon=3
 
 ## Безопасность
 
-* JWT (HS256) на всех эндпоинтах, кроме `/health` и `/auth/login`; пароли — PBKDF2-SHA256; одинаковое время ответа
+* JWT (HS256) на всех эндпоинтах, кроме `/health`, `/auth/login`, `/auth/demo` и `/predict`; пароли — PBKDF2-SHA256; одинаковое время ответа
   для неизвестного логина и неверного пароля.
 * Изоляция: загруженную компанию видит только её владелец.
 * Логи без чувствительных данных (`api/logging_setup.py`): фильтр на всех логгерах маскирует ИНН, суммы,
   наименования в «…» и e-mail; access-лог — только метод, путь без query, код и время; тела запросов не пишутся.
-* Лимит размера загрузки, проверка формата до разбора.
+* Лимит размера загрузки, проверка формата до разбора, лимит частоты запросов с одного IP (`api/ratelimit.py`).
+* Демо-гости изолированы: у каждого своя копия демо-компании, шаблон `demo-template` снаружи недоступен (`api/demo.py`).
+* Тест `api/tests/test_demo_security.py`: полный сценарий — в логах нет ИНН, названий, назначений, сумм и токенов.
 
 ## Хранилище
 
