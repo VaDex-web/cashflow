@@ -46,6 +46,7 @@ class OriginForecast:
     balances: np.ndarray       # (n_sims, H)
     exp_in: np.ndarray         # ожидаемые дневные поступления
     exp_out: np.ndarray
+    state: Any = None          # состояние гибрида (для проверки регулярных платежей без переобучения)
 
 
 def _baseline(daily_hist: pd.DataFrame, name: str, H: int, n_sims: int, seed: int, b0: float,
@@ -72,7 +73,7 @@ def _hybrid(tx: pd.DataFrame, origin: date, H: int, n_sims: int, seed: int, mode
     st = build_state(tx, [], H, as_of=origin, n_sims=n_sims, seed=seed, model=model, interval_scale=interval_scale)
     plan = build_plan(st, H)
     sim = simulate(st, plan)
-    return OriginForecast(sim.balances, sim.det_in + plan.res_in, sim.det_out + plan.res_out)
+    return OriginForecast(sim.balances, sim.det_in + plan.res_in, sim.det_out + plan.res_out, st)
 
 
 def _actual(daily: pd.DataFrame, tx: pd.DataFrame, origin: date, H: int) -> dict[str, np.ndarray]:
@@ -103,25 +104,25 @@ def _origins(daily: pd.DataFrame, H: int, n_origins: int, step: int, min_train: 
     return sorted(out)
 
 
-def _recurring_hits(tx: pd.DataFrame, origin: date, H: int, seed: int) -> dict[str, float]:
-    """Точность расписания регулярных платежей: пришёл ли платёж группы в ±3 дня от ожидаемой даты."""
-    from .categorize import fit_categorizer
-    from .recurring import _cp_key, find_patterns
+def _recurring_hits(tx: pd.DataFrame, origin: date, H: int, state: Any) -> dict[str, Any]:
+    """Точность расписания регулярных платежей: пришёл ли платёж группы в ±3 дня от ожидаемой даты.
 
-    hist = tx[pd.to_datetime(tx["date"]).dt.date <= origin]
-    fut = tx[(pd.to_datetime(tx["date"]).dt.date > origin)
-             & (pd.to_datetime(tx["date"]).dt.date <= origin + timedelta(days=H + 3))]
-    if len(hist) < 30:
+    Берёт паттерны и категоризатор из состояния гибрида на этой отсечке (оба обучены только на прошлом).
+    """
+    from .recurring import _cp_key
+
+    if state is None or not state.patterns or state.categorizer is None:
         return {"n": 0}
-    cz = fit_categorizer(hist, seed=seed)
-    hist_c = cz.transform(hist)
-    fut_c = cz.transform(fut)
+    d = pd.to_datetime(tx["date"]).dt.date
+    fut = tx[(d > origin) & (d <= origin + timedelta(days=H + 3))]
+    if not len(fut):
+        return {"n": 0}
+    fut_c = state.categorizer.transform(fut)
     fut_c["d"] = pd.to_datetime(fut_c["date"]).dt.date
     fut_c["cp"] = [_cp_key(i, n) for i, n in zip(fut_c["counterparty_inn"], fut_c["counterparty_name"])]
-    pats = find_patterns(hist_c, origin)
     n = hits = 0
     amt_err = []
-    for p in pats:
+    for p in state.patterns:
         for _, exp in p.schedule(origin + timedelta(days=H)):
             if exp <= origin:
                 continue
@@ -152,9 +153,12 @@ def backtest(df: Any, *, horizon: int = 30, n_origins: int = 8, step: int = 21, 
     cid = str(company_id or tx.attrs.get("company_id") or "unknown")
     tx = tx.copy()
     tx.attrs = {}
-    from .categorize import categorize
+    from .categorize import rule_category
 
-    tx_cat = categorize(tx)  # только для «спасательных» поступлений в факте (не в модели)
+    # Только для разметки «спасательных» поступлений в ФАКТЕ (не в модели): одни правила, без обучения.
+    tx_cat = tx.copy()
+    tx_cat["category"] = [rule_category(p, n, d)[0] or "other"
+                          for p, n, d in zip(tx["purpose"], tx["counterparty_name"], tx["direction"])]
     daily = to_daily(tx)
     resc = tx_cat[(tx_cat["direction"] == "in") & tx_cat["category"].isin(RESCUE_INFLOW_CATEGORIES)]
     rescue_daily = resc.groupby(pd.to_datetime(resc["date"]))["amount"].sum()
@@ -165,6 +169,7 @@ def backtest(df: Any, *, horizon: int = 30, n_origins: int = 8, step: int = 21, 
     for o in origins:
         act = _actual(daily, tx_cat, o, H)
         turnover = float(daily.loc[:pd.Timestamp(o)].iloc[-30:]["outflow"].sum()) or 1.0
+        hybrid_state = None
         for m in models:
             t0 = time.time()
             try:
@@ -178,6 +183,8 @@ def backtest(df: Any, *, horizon: int = 30, n_origins: int = 8, step: int = 21, 
             except Exception as exc:  # noqa: BLE001
                 log.warning("backtest model failed: %s %s", m, type(exc).__name__)
                 continue
+            if fc.state is not None and hybrid_state is None:
+                hybrid_state = fc.state
             q = np.quantile(fc.balances, [INTERVAL_LOW_Q, 0.5, INTERVAL_HIGH_Q], axis=0)
             p_gap = (fc.balances < threshold).mean(axis=0)
             target = act["need"]  # все модели прогнозируют остаток без «спасательных» пополнений
@@ -198,7 +205,7 @@ def backtest(df: Any, *, horizon: int = 30, n_origins: int = 8, step: int = 21, 
             })
         if recurring_check:
             try:
-                r = _recurring_hits(tx, o, H, seed)
+                r = _recurring_hits(tx, o, H, hybrid_state)
                 if r.get("n"):
                     rec_stats["n"] += r["n"]
                     rec_stats["hits"] += r["hits"]

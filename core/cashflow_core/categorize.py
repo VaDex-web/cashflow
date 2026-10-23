@@ -147,14 +147,14 @@ class Categorizer:
             texts = [_ml_text(p, n, d, a) for p, n, d, a in zip(
                 df.loc[strong, "purpose"], df.loc[strong, "counterparty_name"], df.loc[strong, "direction"], df.loc[strong, "amount"])]
             # ограничиваем объём обучения, чтобы ядро оставалось быстрым
-            if len(texts) > 20000:
+            if len(texts) > 6000:
                 rs = np.random.default_rng(seed)
-                sel = rs.choice(len(texts), 20000, replace=False)
+                sel = rs.choice(len(texts), 6000, replace=False)
                 texts = [texts[i] for i in sel]
                 y = y.iloc[sel]
             self.model = make_pipeline(
-                TfidfVectorizer(analyzer="char_wb", ngram_range=(2, 4), min_df=2, sublinear_tf=True, max_features=20000),
-                LogisticRegression(max_iter=300, C=4.0, class_weight="balanced", tol=1e-3),
+                TfidfVectorizer(analyzer="char_wb", ngram_range=(2, 4), min_df=2, sublinear_tf=True, max_features=12000),
+                LogisticRegression(max_iter=200, C=4.0, class_weight="balanced", tol=1e-3),
             )
             self.model.fit(texts, y.values)
             self.classes = list(self.model.classes_)

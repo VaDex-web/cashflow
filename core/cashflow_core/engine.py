@@ -222,6 +222,7 @@ def build_state(
     as_of: date | None = None,
     categorizer: Categorizer | None = None,
     interval_scale: float | None = None,
+    comfort_balance: float | None = None,
 ) -> ForecastState:
     """Подготовить состояние прогноза (очистка, категории, паттерны, модели, ошибки).
 
@@ -231,6 +232,8 @@ def build_state(
         horizon: горизонт (дней), минимум 30 рекомендуется.
         model: "auto" | "ets" | "gbm" | "naive" — модель остаточных потоков.
         threshold: порог «разрыва» (по умолчанию остаток < 0).
+        comfort_balance: минимальный комфортный остаток владельца (подушка безопасности); по умолчанию —
+            расходы примерно за 7 дней (средние списания за 90 дней без переводов между своими счетами).
         interval_scale: множитель ширины интервалов (по умолчанию калиброванный :data:`schema.INTERVAL_SCALE`).
         as_of: обрезать историю этой датой (для бэктеста).
     """
@@ -254,7 +257,9 @@ def build_state(
         return ForecastState(cid, tx, to_daily(tx), today, 0.0, [], [], TaxModel(), None,
                              pd.Series(dtype=float, index=empty_idx), pd.Series(dtype=float, index=empty_idx),
                              "mean", pd.Series(dtype=float, index=empty_idx), pd.Series(dtype=float, index=empty_idx), {}, np.zeros((0, horizon)), np.zeros((0, horizon)), 2.0, ev, "minimal",
-                             warnings + ew, {"horizon": horizon, "n_sims": n_sims, "seed": seed, "threshold": threshold})
+                             warnings + ew, {"horizon": horizon, "n_sims": n_sims, "seed": seed, "threshold": threshold,
+                                             "comfort_balance": float(comfort_balance or 0.0),
+                                             "comfort_source": "user" if comfort_balance is not None else "auto"})
 
     cz = categorizer or fit_categorizer(tx, seed=seed)
     tx = cz.transform(tx)
@@ -309,6 +314,15 @@ def build_state(
     if model_name in MODEL_FACTORIES:
         models = {"in": MODEL_FACTORIES[model_name](seed).fit(r_in_w), "out": MODEL_FACTORIES[model_name](seed).fit(r_out_w)}
 
+    # Подушка безопасности: задал владелец или «расходы примерно за 7 дней»
+    if comfort_balance is not None and np.isfinite(float(comfort_balance)) and float(comfort_balance) >= 0:
+        comfort, comfort_src = float(comfort_balance), "user"
+    else:
+        recent_out = tx[(tx["direction"] == "out") & (tx["category"] != "transfers")
+                        & (pd.to_datetime(tx["date"]) > pd.Timestamp(as_of_d) - pd.Timedelta(days=90))]
+        span = min(90, hist_days)
+        comfort, comfort_src = round(float(recent_out["amount"].sum()) / max(span, 1) * 7, -2), "auto"
+
     # Один клиент даёт большую часть выручки — риск концентрации
     rev = tx[(tx["direction"] == "in") & (tx["category"] == "revenue")]
     if len(rev) and mode != "minimal":
@@ -337,7 +351,8 @@ def build_state(
         raw_in=r_in, raw_out=r_out,
         models=models, err_in=e_in, err_out=e_out, err_scale=scale, events=ev, mode=mode, warnings=warnings,
         settings={"horizon": horizon, "n_sims": int(n_sims), "seed": int(seed), "threshold": float(threshold),
-                  "model": model, "interval_scale": float(INTERVAL_SCALE if interval_scale is None else interval_scale)},
+                  "model": model, "interval_scale": float(INTERVAL_SCALE if interval_scale is None else interval_scale),
+                  "comfort_balance": comfort, "comfort_source": comfort_src},
         model_scores=scores, fitted_as_of=as_of_d,
         hist_min_balance=float(daily["balance"].min()), excluded_tax_from_residual=exclude_tax,
     )
@@ -530,6 +545,7 @@ def make_result(state: ForecastState, plan: Plan, sim: SimResult, extra_warnings
         "horizon_days": plan.horizon,
         "as_of": state.as_of.isoformat(),
         "current_balance": round(float(state.start_balance), 2),
+        "comfort_balance": round(float(state.settings.get("comfort_balance") or 0.0), 2),
         "daily": _daily_points(plan, sim),
         "risks": risks,
         "recurring": [p.to_contract(state.as_of) for p in state.patterns],

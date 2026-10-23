@@ -103,6 +103,7 @@ class ForecastResult(TypedDict):
     horizon_days: int
     as_of: str                 # необязательное: дата последней операции
     current_balance: float     # необязательное: фактический остаток на as_of
+    comfort_balance: float     # необязательное: подушка безопасности, от которой считается риск «мало денег»
     daily: list[DailyPoint]
     risks: list[Risk]
     recurring: list[Recurring]

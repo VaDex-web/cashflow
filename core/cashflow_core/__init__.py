@@ -39,7 +39,8 @@ def forecast(df: Any, events: list[dict[str, Any]] | None = None, horizon: int =
         events: ожидаемые события (Event из контракта).
         horizon: горизонт в днях (≥ 30 рекомендуется).
         scenario: необязательный сценарий {type, params}.
-        **kwargs: company_id, n_sims (2000), seed (42), threshold (0), model ("auto"), as_of.
+        **kwargs: company_id, n_sims (2000), seed (42), threshold (0), model ("auto"), as_of,
+            comfort_balance (подушка безопасности; по умолчанию расходы за 7 дней), interval_scale.
     """
     try:
         state = df if isinstance(df, ForecastState) else build_state(df, events, horizon, **kwargs)
@@ -56,7 +57,7 @@ def _safe_result(company_id: Any, horizon: int, exc: Exception) -> dict[str, Any
     get_logger(__name__).error("forecast failed: %s", type(exc).__name__)
     return {"company_id": str(company_id or "unknown"),
             "generated_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
-            "horizon_days": int(horizon or 30), "as_of": None, "current_balance": None, "daily": [], "risks": [], "recurring": [], "sources_used": ["bank"],
+            "horizon_days": int(horizon or 30), "as_of": None, "current_balance": None, "comfort_balance": None, "daily": [], "risks": [], "recurring": [], "sources_used": ["bank"],
             "warnings": [f"Прогноз не построен: внутренняя ошибка ({type(exc).__name__}). Проверьте формат выписки."]}
 
 

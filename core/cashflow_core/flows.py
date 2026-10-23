@@ -95,6 +95,13 @@ class SeasonalProfile:
         f["ab"] = float(rec.values[ab_m].mean() / base) if ab_m.sum() >= 3 else 1.0
         return f, base
 
+    @classmethod
+    def _factor_vec(cls, f: dict[Any, float], types: np.ndarray) -> np.ndarray:
+        """Векторно: коэффициент дня для массива (dow, is_business_day, after_break)."""
+        table = np.array([cls._factor(f, dow, bd, ab) for bd in (0, 1) for dow in range(7) for ab in (0, 1)])
+        t = types.astype(int)
+        return table[t[:, 1] * 14 + t[:, 0] * 2 + t[:, 2]]
+
     @staticmethod
     def _factor(f: dict[Any, float], dow: int, bd: int, ab: int) -> float:
         if not bd:
@@ -109,7 +116,7 @@ class SeasonalProfile:
             return np.zeros(horizon)
         hist = y.iloc[-365:]
         t = self._types(hist.index)
-        fac = np.array([self._factor(f, d, b, a) for d, b, a in t.values])
+        fac = self._factor_vec(f, t.values)
         bdm = t["is_business_day"].values == 1
         des = np.where(fac > 0.05, hist.values / np.maximum(fac, 0.05), np.nan)[bdm]
         des = des[np.isfinite(des)]
@@ -120,7 +127,7 @@ class SeasonalProfile:
             level = float(np.sum(w * des) / np.sum(w))
         fut = _future_index(y, horizon)
         tf = self._types(fut)
-        pred = level * np.array([self._factor(f, d, b, a) for d, b, a in tf.values])
+        pred = level * self._factor_vec(f, tf.values)
         if self.use_yoy and len(y) >= 400:
             c = np.concatenate([[0.0], np.cumsum(y.values)])
             n = len(y)
@@ -147,7 +154,7 @@ class SeasonalProfile:
 class GBMFlow:
     """Градиентный бустинг (Poisson) с прямым многошаговым прогнозом."""
 
-    leads: tuple[int, ...] = (1, 5, 10, 15, 20, 25, 30)
+    leads: tuple[int, ...] = (1, 7, 14, 21, 30)
     seed: int = 42
     name: str = "gbm"
     model: Any = None
@@ -193,7 +200,7 @@ class GBMFlow:
         self._cols = np.array([np.unique(col[np.isfinite(col)]).size >= 2 for col in X.T])
         X = X[:, self._cols]
         self.model = HistGradientBoostingRegressor(
-            loss="poisson", learning_rate=0.08, max_iter=150, max_leaf_nodes=15, min_samples_leaf=30,
+            loss="poisson", learning_rate=0.1, max_iter=100, max_leaf_nodes=15, min_samples_leaf=30,
             l2_regularization=1.0, random_state=self.seed)
         try:
             self.model.fit(X, np.maximum(target, 0.0))
@@ -222,7 +229,7 @@ MODEL_FACTORIES = {
 }
 
 
-def error_paths(y: pd.Series, model_name: str, horizon: int, *, n_origins: int = 40, step: int = 7,
+def error_paths(y: pd.Series, model_name: str, horizon: int, *, n_origins: int = 30, step: int = 7,
                 seed: int = 42, refit_every: int = 182, y_true: pd.Series | None = None
                 ) -> tuple[np.ndarray, list[pd.Timestamp]]:
     """Ошибки прогнозов с прошлых дат отсечения: матрица (n_origins × horizon) = факт − прогноз.
