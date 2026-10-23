@@ -1,0 +1,24 @@
+[
+  {
+    "number": "П-2026/33",
+    "counterparty_name": "ООО «Северный ритейл»",
+    "counterparty_inn": "0095056560",
+    "direction": "in",
+    "total_amount": 960000.0,
+    "signed_date": "2026-10-20",
+    "prepayment_percent": 30,
+    "deferral_days": 10,
+    "schedule": [
+      {
+        "date": "2026-10-27",
+        "amount": 288000.0,
+        "note": "предоплата 30% за внедрение кассовой системы"
+      },
+      {
+        "date": "2026-12-15",
+        "amount": 672000.0,
+        "note": "окончательный расчёт после акта"
+      }
+    ]
+  }
+]
