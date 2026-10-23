@@ -489,7 +489,10 @@ def simulate(state: ForecastState, plan: Plan, n_sims: int | None = None, seed: 
     e_in, e_out = state.err_in, state.err_out
     if len(e_in) >= 5 and e_in.shape[1] >= H:
         pick = rng0.integers(0, len(e_in), n)
-        scale = state.err_scale * np.exp(0.1 * rng0.standard_normal(n))[:, None]
+        # калибровка ширины (k) растягивает только непрерывный шум модели потоков, а не дискретные
+        # события (задержку клиента и т.п.) — поэтому сценарии всегда сдвигают риск в правильную сторону
+        k = float(state.settings.get("interval_scale", INTERVAL_SCALE))
+        scale = k * state.err_scale * np.exp(0.1 * rng0.standard_normal(n))[:, None]
         res_in = (plan.res_in[None, :] + scale * e_in[pick, :H]) * plan.in_mult[None, :]
         res_out = (plan.res_out[None, :] + scale * e_out[pick, :H]) * plan.out_mult[None, :]
     else:
@@ -500,16 +503,11 @@ def simulate(state: ForecastState, plan: Plan, n_sims: int | None = None, seed: 
             sd_in = 0.0
         if not np.isfinite(sd_out):
             sd_out = 0.0
-        res_in = (plan.res_in[None, :] + state.err_scale * sd_in * rng0.standard_normal((n, H))) * plan.in_mult[None, :]
-        res_out = (plan.res_out[None, :] + state.err_scale * sd_out * rng0.standard_normal((n, H))) * plan.out_mult[None, :]
+        k = float(state.settings.get("interval_scale", INTERVAL_SCALE))
+        res_in = (plan.res_in[None, :] + k * state.err_scale * sd_in * rng0.standard_normal((n, H))) * plan.in_mult[None, :]
+        res_out = (plan.res_out[None, :] + k * state.err_scale * sd_out * rng0.standard_normal((n, H))) * plan.out_mult[None, :]
     total = flows + res_in - res_out + plan.extra[None, :]
     balances = plan.start_balance + np.cumsum(total, axis=1)
-    k = float(state.settings.get("interval_scale", INTERVAL_SCALE))
-    if k != 1.0:
-        # калибровка ширины: растягиваем траектории вокруг медианы (квантили масштабируются точно,
-        # вероятности разрыва меняются согласованно с интервалами)
-        med = np.median(balances, axis=0, keepdims=True)
-        balances = med + k * (balances - med)
     return SimResult(balances=balances, det_in=det_in, det_out=det_out)
 
 

@@ -1,0 +1,18 @@
+{
+  "k": 1.3,
+  "source": "dev",
+  "n_dev_companies": 77,
+  "dev_coverage_before": 0.7008,
+  "dev_coverage_after": 0.7947,
+  "time_split_check": {
+    "k": 1.3,
+    "target": 0.8,
+    "coverage_early_before": 0.7057,
+    "coverage_early_after": 0.8063,
+    "coverage_late_before": 0.696,
+    "coverage_late_after": 0.7832,
+    "n_early": 279,
+    "n_late": 283,
+    "exact": true
+  }
+}

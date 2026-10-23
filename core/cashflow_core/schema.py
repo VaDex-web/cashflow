@@ -53,8 +53,8 @@ GAP_PROBABILITY_REPORT = 0.05
 #: Квантили интервала: balance_low = P10, balance_high = P90 (80% интервал).
 INTERVAL_LOW_Q = 0.10
 INTERVAL_HIGH_Q = 0.90
-#: Калибровочный множитель ширины интервалов Monte Carlo (подобран бэктестом, см. core/reports/metrics.md).
-INTERVAL_SCALE = 1.15
+#: Калибровочный множитель ширины интервалов Monte Carlo (подобран на dev-компаниях, см. core/reports/calibration.json).
+INTERVAL_SCALE = 1.3
 
 
 class Event(TypedDict, total=False):

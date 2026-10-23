@@ -37,7 +37,7 @@ from .parallel import make_pool
 from .schema import INTERVAL_SCALE
 
 #: Меняется, когда меняется модель: старый кэш тогда не используется.
-CACHE_VERSION = "2026-10-24a"
+CACHE_VERSION = "2026-10-24b"
 
 
 def discover(path: str | Path) -> list[tuple[str, Any]]:
