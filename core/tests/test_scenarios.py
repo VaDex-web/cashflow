@@ -11,7 +11,7 @@ def _state_with_tight_balance():
     df = base_df()
     d = (last_date(df) + timedelta(days=20)).date()
     big = load_statement(df).iloc[-1]["balance_eod"]  # почти весь остаток уйдёт 20-го числа
-    ev = [{"id": "pay", "type": "invoice", "direction": "out", "amount": float(big) * 1.0, "date": d.isoformat()},
+    ev = [{"id": "pay", "type": "invoice", "direction": "out", "amount": float(big) * 1.3, "date": d.isoformat()},
           {"id": "client", "type": "invoice", "direction": "in", "amount": float(big) * 0.3,
            "date": (d - timedelta(days=3)).isoformat(), "counterparty": "ООО «Клиент-01»"}]
     return build_state(df, ev, 30, model="ets", **FAST)

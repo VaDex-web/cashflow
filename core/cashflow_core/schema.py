@@ -54,7 +54,7 @@ GAP_PROBABILITY_REPORT = 0.05
 INTERVAL_LOW_Q = 0.10
 INTERVAL_HIGH_Q = 0.90
 #: Калибровочный множитель ширины интервалов Monte Carlo (подобран бэктестом, см. core/reports/metrics.md).
-INTERVAL_SCALE = 1.0
+INTERVAL_SCALE = 1.15
 
 
 class Event(TypedDict, total=False):

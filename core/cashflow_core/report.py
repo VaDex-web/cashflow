@@ -94,14 +94,22 @@ def plot_errors(met: dict[str, Any], path: Path) -> None:
     fig, ax = plt.subplots(figsize=(9, 4.8), dpi=150)
     fig.patch.set_facecolor(surface)
     ax.set_facecolor(surface)
+    ends = []
     for m in ("naive", "ets", "hybrid"):
         if m not in met:
             continue
         y = np.array(met[m]["balance_mae_pct_turnover_by_h"]) * 100
         x = np.arange(1, len(y) + 1)
         ax.plot(x, y, color=_COLORS[m], lw=2, label=_LABELS[m], solid_capstyle="round")
-        ax.annotate(f"{y[-1]:.0f}%", (x[-1], y[-1]), xytext=(6, 0), textcoords="offset points", va="center",
-                    color=ink2, fontsize=9)
+        ends.append([y[-1], x[-1], f"{y[-1]:.0f}%"])
+    # разводим подписи на конце линий, чтобы не налезали друг на друга
+    ends.sort()
+    gap = 1.4
+    for i in range(1, len(ends)):
+        if ends[i][0] - ends[i - 1][0] < gap:
+            ends[i][0] = ends[i - 1][0] + gap
+    for ylab, xe, txt in ends:
+        ax.annotate(txt, (xe, ylab), xytext=(6, 0), textcoords="offset points", va="center", color=ink2, fontsize=9)
     ax.set_xlabel("День горизонта прогноза", color=ink2)
     ax.set_ylabel("Ошибка остатка, % месячного оборота\n(медиана по прогнозам)", color=ink2)
     ax.set_title("Ошибка прогноза остатка растёт с горизонтом: гибрид держит её ниже", color=ink, loc="left",
@@ -142,7 +150,8 @@ def write_markdown(met: dict[str, Any], meta: dict[str, Any], cat: dict[str, Any
              f"(шаг {meta['step']} дн.), Monte Carlo {meta['n_sims']} траекторий, seed {meta['seed']}.", "",
              "| Модель | " + " | ".join(cols) + " |", "|---|" + "---|" * len(cols)]
     for m in order:
-        lines.append(f"| {_LABELS.get(m, m)} | " + " | ".join(fmt(tab.loc[m, c]) for c in cols) + " |")
+        lines.append(f"| {_LABELS.get(m, m)} | " + " | ".join(
+            (f"{tab.loc[m, c]:.3f}" if c == "Brier" and tab.loc[m, c] is not None else fmt(tab.loc[m, c])) for c in cols) + " |")
     rec = met.get("_recurring", {})
     g = met.get("hybrid", {}).get("gaps_without_owner_rescue", {})
     ga = met.get("hybrid", {}).get("gaps_actual_balance", {})
