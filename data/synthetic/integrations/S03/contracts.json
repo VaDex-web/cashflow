@@ -2,7 +2,7 @@
   {
     "number": "27/26-СМР",
     "counterparty_name": "ООО «СЗ Донской квартал»",
-    "counterparty_inn": "0063476139",
+    "counterparty_inn": "0003634761",
     "direction": "in",
     "total_amount": 4300000.0,
     "signed_date": "2026-05-19",
@@ -34,7 +34,7 @@
   {
     "number": "28/26-СМР",
     "counterparty_name": "ООО «СЗ Донской квартал»",
-    "counterparty_inn": "0063476139",
+    "counterparty_inn": "0003634761",
     "direction": "in",
     "total_amount": 2720000.0,
     "signed_date": "2026-06-09",
@@ -71,7 +71,7 @@
   {
     "number": "29/26-СМР",
     "counterparty_name": "ООО «Логистик Парк Юг»",
-    "counterparty_inn": "1259236524",
+    "counterparty_inn": "0012592365",
     "direction": "in",
     "total_amount": 5060000.0,
     "signed_date": "2026-06-22",
@@ -103,7 +103,7 @@
   {
     "number": "30/26-СМР",
     "counterparty_name": "ООО «СЗ Донской квартал»",
-    "counterparty_inn": "0063476139",
+    "counterparty_inn": "0003634761",
     "direction": "in",
     "total_amount": 6610000.0,
     "signed_date": "2026-07-03",
@@ -140,7 +140,7 @@
   {
     "number": "31/26-СМР",
     "counterparty_name": "ООО «Логистик Парк Юг»",
-    "counterparty_inn": "1259236524",
+    "counterparty_inn": "0012592365",
     "direction": "in",
     "total_amount": 5090000.0,
     "signed_date": "2026-07-15",
@@ -177,7 +177,7 @@
   {
     "number": "32/26-СМР",
     "counterparty_name": "ООО «СЗ Донской квартал»",
-    "counterparty_inn": "0063476139",
+    "counterparty_inn": "0003634761",
     "direction": "in",
     "total_amount": 5080000.0,
     "signed_date": "2026-08-06",
@@ -209,7 +209,7 @@
   {
     "number": "33/26-СМР",
     "counterparty_name": "ООО «СЗ Донской квартал»",
-    "counterparty_inn": "0063476139",
+    "counterparty_inn": "0003634761",
     "direction": "in",
     "total_amount": 7010000.0,
     "signed_date": "2026-08-20",
@@ -241,7 +241,7 @@
   {
     "number": "34/26-СМР",
     "counterparty_name": "ООО «СЗ Донской квартал»",
-    "counterparty_inn": "0063476139",
+    "counterparty_inn": "0003634761",
     "direction": "in",
     "total_amount": 6750000.0,
     "signed_date": "2026-09-03",
@@ -268,7 +268,7 @@
   {
     "number": "35/26-СМР",
     "counterparty_name": "ООО «Агрохолдинг Степь»",
-    "counterparty_inn": "0001192031",
+    "counterparty_inn": "0081011920",
     "direction": "in",
     "total_amount": 4330000.0,
     "signed_date": "2026-10-07",
