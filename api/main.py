@@ -17,6 +17,7 @@ from .config import get_settings
 from .core_adapter import get_core
 from .db import init_db, new_session
 from .logging_setup import AccessLogMiddleware, setup_logging
+from .ratelimit import RateLimitMiddleware
 from .routes import router
 from .security import ensure_users
 
@@ -62,6 +63,14 @@ async def lifespan(app: FastAPI):  # noqa: ANN201
     with new_session() as s:
         ensure_users(s)
     core = get_core()
+    if get_settings().demo_warmup:
+        from .demo import prepare_template  # noqa: PLC0415
+
+        with new_session() as s:
+            try:
+                prepare_template(s)
+            except Exception as exc:  # noqa: BLE001 — демо подготовится при первом входе
+                log.warning("demo warmup failed: %s", type(exc).__name__)
     log.info("api started: core=%s", core.name)
     yield
 
@@ -71,9 +80,10 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="Денежный прогноз — API",
         description="Прогноз остатка на счёте малого бизнеса, кассовые разрывы, сценарии «что если», план-факт и источники "
-                    "данных. Контракт — docs/contract.md. Все эндпоинты, кроме /api/health и /api/auth/login, требуют "
+                    "данных. Контракт — docs/contract.md. Все эндпоинты, кроме /api/health, /api/auth/login и /api/auth/demo, требуют "
                     "заголовок `Authorization: Bearer <token>` (кнопка Authorize).",
         version="1.0.0", lifespan=lifespan)
+    app.add_middleware(RateLimitMiddleware)
     app.add_middleware(AccessLogMiddleware)
     app.add_middleware(CORSMiddleware, allow_origins=s.cors_origins, allow_credentials=True, allow_methods=["*"],
                        allow_headers=["*"])

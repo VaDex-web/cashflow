@@ -65,6 +65,7 @@ const coreMetrics = import.meta.glob('../../../core/reports/metrics.json', { eag
 
 const realApi = {
   login: (username: string, password: string) => request<{ access_token: string; token_type: string }>('/auth/login', json({ username, password })),
+  demoLogin: () => request<{ access_token: string; token_type: string }>('/auth/demo', { method: 'POST' }),
   health: () => request<{ status: string }>('/health'),
   me: () => request<{ username: string; company_id: string | null; company_name: string | null }>('/me'),
   uploadStatement: (file: File) => {

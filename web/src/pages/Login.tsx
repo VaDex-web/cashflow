@@ -6,26 +6,41 @@ import { useSession } from '../lib/session'
 export function Login() {
   const { login, companyId, setCompany } = useSession()
   const nav = useNavigate()
-  const [username, setUsername] = useState(import.meta.env.VITE_DEMO_USER ?? 'demo')
-  const [password, setPassword] = useState(import.meta.env.VITE_DEMO_PASSWORD ?? 'demo')
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+
+  async function enter(token: string, keepCompany: boolean) {
+    login(token)
+    // У пользователя может уже быть своя компания (API: один пользователь = одна компания)
+    let company = keepCompany ? companyId : null
+    try {
+      const me = await api.me()
+      if (me.company_id) company = me.company_id
+    } catch { /* нет /me — работаем по сохранённой компании */ }
+    setCompany(company)
+    nav(company ? '/' : '/upload')
+  }
+
+  async function demo() {
+    setBusy(true)
+    setError(null)
+    try {
+      await enter((await api.demoLogin()).access_token, false)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(false)
+    }
+  }
 
   async function submit(e: FormEvent) {
     e.preventDefault()
     setBusy(true)
     setError(null)
     try {
-      const r = await api.login(username.trim(), password)
-      login(r.access_token)
-      // У пользователя может уже быть своя компания (API: один пользователь = одна компания)
-      let company = companyId
-      try {
-        const me = await api.me()
-        if (me.company_id) company = me.company_id
-      } catch { /* нет /me — работаем по сохранённой компании */ }
-      if (company) setCompany(company)
-      nav(company ? '/' : '/upload')
+      await enter((await api.login(username.trim(), password)).access_token, true)
     } catch (err) {
       setError(err instanceof Error && 'status' in err && (err as { status: number }).status === 401
         ? 'Неверный логин или пароль'
@@ -45,6 +60,13 @@ export function Login() {
             <div className="small muted">Узнайте заранее, хватит ли денег на счёте</div>
           </div>
         </div>
+        <button type="button" className="btn btn-lime" disabled={busy} onClick={demo} style={{ padding: 14, fontSize: 16 }}>
+          {busy ? 'Открываем…' : '▶ Посмотреть демо — без регистрации'}
+        </button>
+        <div className="tiny" style={{ textAlign: 'center', marginTop: -6 }}>
+          ИТ-компания с крупным клиентом, который задерживает оплату. У вас будет своя копия — можно добавлять платежи и загружать выписку.
+        </div>
+        <div className="row tiny" style={{ gap: 8 }}><span style={{ flex: 1, height: 1, background: 'var(--border)' }} />или войдите<span style={{ flex: 1, height: 1, background: 'var(--border)' }} /></div>
         <label className="field">Логин
           <input className="input" value={username} onChange={(e) => setUsername(e.target.value)} autoComplete="username" required />
         </label>
@@ -52,7 +74,7 @@ export function Login() {
           <input className="input" type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" required />
         </label>
         {error && <div className="notice notice-err" role="alert">{error}</div>}
-        <button className="btn btn-lime" disabled={busy} style={{ padding: 12 }}>{busy ? 'Входим…' : 'Войти'}</button>
+        <button className="btn" disabled={busy || !username || !password} style={{ padding: 12 }}>{busy ? 'Входим…' : 'Войти'}</button>
         <div className="tiny" style={{ textAlign: 'center' }}>
           🔒 Соединение защищено, данные выписки не попадают в логи.
           {USE_MOCK && <><br />Демо-режим: подойдёт любой логин и пароль.</>}

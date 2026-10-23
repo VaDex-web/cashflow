@@ -29,8 +29,12 @@ export const mockApi = {
     if (!username || !password) throw new Error('Введите логин и пароль')
     return load<{ access_token: string; token_type: string }>('login_response.json')
   },
+  async demoLogin() {
+    await delay()
+    return load<{ access_token: string; token_type: string }>('login_response.json')
+  },
   async me() {
-    return { username: 'demo', company_id: null as string | null, company_name: null as string | null }
+    return { username: 'demo', company_id: 'demo-yuzhny-vkus' as string | null, company_name: 'ООО «Южный Вкус»' as string | null }
   },
   async health() {
     return load<{ status: string }>('health.json')

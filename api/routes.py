@@ -16,7 +16,7 @@ from .schemas import (CategoriesResponse, CompanyCreated, CompanyInfo, CompanySe
                       EventCreate, EventParseRequest, EventParseResult, EventUpdate, ForecastResult, Health, IntegrationName,
                       LoginRequest, LoginResponse, Me, MeUpdate, PlanFactRow, Recurring, Risk, Scenario, ScenarioResult,
                       SyncResponse)
-from .security import authenticate, current_user
+from .security import authenticate, create_token, current_user
 from .statements import StatementError
 
 router = APIRouter(prefix="/api")
@@ -52,6 +52,16 @@ def login(body: LoginRequest, session: Session = Depends(get_session)) -> dict[s
     if token is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Неверный логин или пароль")
     return {"access_token": token, "token_type": "bearer"}
+
+
+@router.post("/auth/demo", response_model=LoginResponse, tags=["служебные"],
+             summary="Демо-вход в один клик: гость со своей копией демо-компании → JWT")
+def demo_login(session: Session = Depends(get_session)) -> dict[str, Any]:
+    if not get_settings().demo_company:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Демо-вход выключен")
+    from .demo import create_guest  # noqa: PLC0415
+
+    return {"access_token": create_token(create_guest(session)), "token_type": "bearer"}
 
 
 # --------------------------------------------------------------------------- компании

@@ -58,6 +58,17 @@ class Settings:
     public_predict: bool = field(default_factory=lambda: _bool("PUBLIC_PREDICT", True))
     #: число траекторий Monte Carlo в ядре (меньше — быстрее, для тестов)
     n_sims: int = field(default_factory=lambda: int(os.getenv("CORE_N_SIMS", "2000")))
+    #: демо-вход в один клик (POST /api/auth/demo): каждому гостю — своя копия этой компании; пусто — выключено
+    demo_company: str = field(default_factory=lambda: os.getenv("DEMO_COMPANY", "S02"))
+    #: подготовить демо-шаблон (источники + прогноз) при старте, чтобы первый демо-вход открывался сразу
+    demo_warmup: bool = field(default_factory=lambda: _bool("DEMO_WARMUP", False))
+    #: через сколько часов удалять гостевые копии
+    demo_ttl_hours: int = field(default_factory=lambda: int(os.getenv("DEMO_TTL_HOURS", "24")))
+    #: лимит запросов с одного IP в минуту: всего и для входа/загрузки файлов/прогноза без входа; 0 — без лимита
+    rate_limit_per_min: int = field(default_factory=lambda: int(os.getenv("RATE_LIMIT_PER_MIN", "300")))
+    rate_limit_heavy_per_min: int = field(default_factory=lambda: int(os.getenv("RATE_LIMIT_HEAVY_PER_MIN", "20")))
+    #: доверять X-Forwarded-For (только за своим обратным прокси, например Caddy)
+    trust_proxy: bool = field(default_factory=lambda: _bool("TRUST_PROXY", False))
 
     def __post_init__(self) -> None:
         self.data_dir.mkdir(parents=True, exist_ok=True)
