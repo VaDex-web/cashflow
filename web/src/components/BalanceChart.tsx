@@ -56,9 +56,11 @@ export function BalanceChart({ base, compare, events = [], risks = [], start, co
   const all = rows.flatMap((r) => [r.band?.[0], r.band?.[1], r.bandb?.[0], r.bandb?.[1]]).filter((v): v is number => v != null)
   const minY = Math.min(0, ...all)
   const maxY = Math.max(...all, 0)
-  const pad = (maxY - minY) * 0.08
-  const yMin = Math.floor((minY - pad) / 100_000) * 100_000
-  const yMax = Math.ceil((maxY + pad) / 100_000) * 100_000
+  // Круглые деления, кратные шагу: 0 ₽ всегда попадает на деление
+  const step = niceStep((maxY - minY) / 5)
+  const yMin = Math.floor(minY / step) * step
+  const yMax = Math.ceil(maxY / step) * step
+  const ticks = Array.from({ length: Math.round((yMax - yMin) / step) + 1 }, (_, i) => yMin + i * step)
 
   // Отрезки, где ожидаемый остаток ниже нуля — подсвечиваем как «разрыв»
   const gapSeries = compare ?? base
@@ -92,7 +94,7 @@ export function BalanceChart({ base, compare, events = [], risks = [], start, co
             <ReferenceArea key={a} x1={a} x2={b} fill="#d23b3b" fillOpacity={0.1} stroke="#d23b3b" strokeOpacity={0.25} strokeDasharray="3 3" />
           ))}
           <XAxis dataKey="date" tickFormatter={fmtDayShort} tick={{ fontSize: 12, fill: '#7a8a80' }} tickLine={false} axisLine={{ stroke: '#dfe6da' }} minTickGap={18} />
-          <YAxis domain={[yMin, yMax]} tickFormatter={fmtRubShort} tick={{ fontSize: 12, fill: '#7a8a80' }} tickLine={false} axisLine={false} width={76} />
+          <YAxis domain={[yMin, yMax]} ticks={ticks} interval={0} tickFormatter={fmtRubShort} tick={{ fontSize: 12, fill: '#7a8a80' }} tickLine={false} axisLine={false} width={76} />
           {comfort != null && comfort > 0 && comfort < yMax && (
             <ReferenceLine y={comfort} stroke="#d98a00" strokeDasharray="6 4" strokeWidth={1.5}
               label={{ value: `комфортный минимум ${fmtRubShort(comfort)} ₽`, position: 'insideTopLeft', fill: '#9a6200', fontSize: 11 }} />
@@ -120,6 +122,12 @@ export function BalanceChart({ base, compare, events = [], risks = [], start, co
       </ResponsiveContainer>
     </div>
   )
+}
+
+function niceStep(raw: number): number {
+  const p = 10 ** Math.floor(Math.log10(Math.max(raw, 1)))
+  const m = raw / p
+  return (m <= 1 ? 1 : m <= 2 ? 2 : m <= 2.5 ? 2.5 : m <= 5 ? 5 : 10) * p
 }
 
 function ChartTip({ active, payload, baseLabel, cmpLabel }: { active?: boolean; payload?: { payload: Row }[]; baseLabel: string; cmpLabel?: string }) {

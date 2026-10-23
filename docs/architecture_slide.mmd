@@ -1,0 +1,21 @@
+flowchart LR
+  src["<b>Источники</b><br/>🏦 банк · 📒 1С<br/>🧾 налоговый календарь<br/>📜 открытые реестры<br/>✍️ ручной ввод"]
+  web["<b>web/</b><br/>React + TypeScript<br/>светофор, график,<br/>«что если», план-факт"]
+  api["<b>api/</b> FastAPI<br/>🔒 JWT · 🧹 фильтр логов<br/>коннекторы источников<br/>план-факт"]
+  db[("<b>SQLite</b><br/>операции, события,<br/>состояние прогноза")]
+  core["<b>core/</b> cashflow_core<br/>категории · регулярные платежи<br/>налоги · Монте-Карло<br/>риски · сценарии · бэктест"]
+
+  web -- "HTTPS + JWT<br/>JSON по контракту" --> api
+  src -- "Event[]" --> api
+  api <--> db
+  api -- "операции + события" --> core
+  core -- "прогноз и риски" --> api
+
+  classDef w fill:#eef7e1,stroke:#6fa62a,color:#13241c
+  classDef a fill:#e6f0ec,stroke:#11553f,color:#13241c
+  classDef c fill:#ffffff,stroke:#0b3d2e,color:#13241c
+  classDef s fill:#f7f9f5,stroke:#7a8a80,color:#13241c
+  class web w
+  class api,db a
+  class core c
+  class src s
