@@ -414,8 +414,10 @@ def scenario(session: Session, company: Company, sc: dict[str, Any], horizon: in
                          f"не учтён — он показан в основном прогнозе."]
     sc = copy.deepcopy(sc)
     if sc["type"] == "client_delay":
-        # можно передать id события из /events — ядро ищет по id или имени контрагента
-        sc["params"]["counterparty_or_event_id"] = str(sc["params"]["counterparty_or_event_id"]).strip()
+        # id события из /events → его контрагент: ядро сдвинет все поступления клиента (регулярные и счета)
+        target = str(sc["params"]["counterparty_or_event_id"]).strip()
+        row = session.scalar(select(EventRow).where(EventRow.company_id == company.id, EventRow.id == target))
+        sc["params"]["counterparty_or_event_id"] = (row.counterparty or target) if row is not None else target
     res = get_core().scenario(state, sc, horizon)
     extra = notes + _api_notes(session, company)
     return {"base": _finish(res["base"], company, extra), "scenario": _finish(res["scenario"], company, extra),

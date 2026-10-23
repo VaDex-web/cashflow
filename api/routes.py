@@ -1,6 +1,7 @@
 """Эндпоинты /api по docs/contract.md (п. 4) + расширения (CRUD событий, загрузка файлов источников, разбор фразы)."""
 from __future__ import annotations
 
+from datetime import date
 from typing import Any, Literal
 
 from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, Request, UploadFile, status
@@ -142,11 +143,9 @@ def add_event(cid: str, body: EventCreate, user: str = Depends(current_user), se
 def parse_event(cid: str, body: EventParseRequest, save: bool = False, user: str = Depends(current_user),
                 session: Session = Depends(get_session)) -> dict[str, Any]:
     company = svc.get_company(session, cid, user)
-    today = svc.as_of_of(session, company)
-    from datetime import date as _date
-
+    today = svc.as_of_of(session, company) or date.today()   # «сегодня» — дата последней операции выписки
     try:
-        ev, understood = parse_text(body.text, today or _date.today())
+        ev, understood = parse_text(body.text, today)
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from None
     out: dict[str, Any] = {"event": ev, "understood": understood}
