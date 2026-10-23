@@ -30,6 +30,8 @@ REGIME_LABELS = {
     "usn_income": "УСН «Доходы» 6%", "usn_income_expense": "УСН «Доходы минус расходы» 15%",
     "osno": "ОСНО (с НДС)", "eshn": "ЕСХН", "unknown": "режим не определён",
 }
+#: доля «НДФЛ + страховые взносы» от выплаченной зарплаты — только для компаний без налоговой истории
+PAYROLL_TAX_SHARE = 0.42
 _ALIASES = {"usn6": "usn_income", "usn15": "usn_income_expense", "usn": "usn_income", "осно": "osno", "есхн": "eshn"}
 _VAT_RX = re.compile(r"(?i)ндс\s*\(?\s*(\d{1,2})\s*%\s*\)?\s*[=:-]?\s*([\d\s ]+[.,]\d{2})")
 _NOT_REVENUE = re.compile(r"(?i)собственн|займ|кредит|транш|депозит|возврат|ошибочн|дивиденд")
@@ -103,8 +105,8 @@ class TaxCalendar(Integration):
             is_tax = (d["direction"] == "out") & text.str.contains(_TAX_RX)
             is_pay = (d["direction"] == "out") & text.str.contains(_PAYROLL_RX)
             is_exp = (d["direction"] == "out") & ~is_tax & ~text.str.contains(_NOT_REVENUE)
-        own = d["counterparty_inn"].astype(str).eq(ctx.inn) if ctx.inn else False
-        is_rev = is_rev & ~own
+        if ctx.inn:
+            is_rev = is_rev & ~d["counterparty_inn"].astype(str).eq(ctx.inn)       # свои переводы — не выручка
 
         def vat_amounts(mask: pd.Series) -> pd.Series:
             vals = []
@@ -151,8 +153,8 @@ class TaxCalendar(Integration):
 
     def _base(self, s: dict[str, Any], as_of: date, regime: str, first: date) -> tuple[float, str]:
         """НДФЛ и взносы в месяц: медиана ЕНП за год в месяцы без квартальных платежей
-        (у плательщика НДС — за вычетом трети НДС прошлого квартала); без истории — 41% от зарплаты
-        (медиана по датасету организаторов)."""
+        (у плательщика НДС — за вычетом трети НДС прошлого квартала); без налоговой истории — 42% от зарплаты
+        (медиана по dev-компаниям датасета, ``python -m api.reports.calibrate_tax``; holdout не использовался)."""
         tax = s["tax"]
         last_year = tax[tax["date"] > as_of - timedelta(days=365)]
         if len(last_year) >= 3:
@@ -173,7 +175,7 @@ class TaxCalendar(Integration):
         if len(pay):
             recent = pay[pay["date"] > as_of - timedelta(days=92)]
             months = max(1, len({_ym(x) for x in recent["date"]}))
-            return 0.41 * float(recent["amount"].sum()) / months, "41% от средней зарплаты"
+            return PAYROLL_TAX_SHARE * float(recent["amount"].sum()) / months, "42% от средней зарплаты"
         return 0.0, ""
 
     # ------------------------------------------------------------------ календарь
@@ -263,4 +265,4 @@ class TaxCalendar(Integration):
 
     def message(self, company: CompanyContext, events: list[SourceEvent]) -> str:
         reg = self.regime(company)
-        return f"Режим: {reg.get('label')}. Сроков в ближайшие 3 месяца: {len(events)}."
+        return f"Налоговый режим: {reg.get('label')}. Налоговых платежей на ближайшие 3 месяца: {len(events)}."

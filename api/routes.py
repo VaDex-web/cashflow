@@ -12,9 +12,10 @@ from .config import get_settings
 from .core_adapter import get_core
 from .db import get_session
 from .integrations import parse_text
-from .schemas import (CategoriesResponse, CompanyCreated, CompanyInfo, Event, EventCreate, EventParseRequest,
-                      EventParseResult, EventUpdate, ForecastResult, Health, IntegrationName, LoginRequest, LoginResponse,
-                      PlanFactRow, Recurring, Risk, Scenario, ScenarioResult, SyncResponse)
+from .schemas import (CategoriesResponse, CompanyCreated, CompanyInfo, CompanySettings, CompanySettingsIn, Event,
+                      EventCreate, EventParseRequest, EventParseResult, EventUpdate, ForecastResult, Health, IntegrationName,
+                      LoginRequest, LoginResponse, Me, MeUpdate, PlanFactRow, Recurring, Risk, Scenario, ScenarioResult,
+                      SyncResponse)
 from .security import authenticate, current_user
 from .statements import StatementError
 
@@ -72,9 +73,57 @@ async def upload_company(request: Request, file: UploadFile = File(..., descript
 
 
 @router.get("/companies", response_model=list[CompanyInfo], tags=["компании"],
-            summary="Компании из датасета и демо-данных + загруженные пользователем")
-def companies(user: str = Depends(current_user), session: Session = Depends(get_session)) -> list[dict[str, Any]]:
-    return svc.list_companies(session, user)
+            summary="Моя компания (один пользователь = одна компания); demo=true — плюс компании датасета и демо")
+def companies(demo: bool = Query(False, description="скрытый демо-режим: показать компании из датасета"),
+              user: str = Depends(current_user), session: Session = Depends(get_session)) -> list[dict[str, Any]]:
+    return svc.list_companies(session, user, demo)
+
+
+@router.get("/me", response_model=Me, tags=["компании"], summary="Кто вошёл и какая у него компания")
+def get_me(user: str = Depends(current_user), session: Session = Depends(get_session)) -> dict[str, Any]:
+    return svc.me(session, user)
+
+
+@router.put("/me", response_model=Me, tags=["компании"], summary="Демо-режим: выбрать компанию из датасета как свою")
+def put_me(body: MeUpdate, user: str = Depends(current_user), session: Session = Depends(get_session)) -> dict[str, Any]:
+    return svc.set_my_company(session, user, body.company_id)
+
+
+@router.get("/companies/{cid}/settings", response_model=CompanySettings, tags=["компании"],
+            summary="Настройки владельца: комфортный минимум на счёте, налоговый режим")
+def get_settings_(cid: str, user: str = Depends(current_user), session: Session = Depends(get_session)) -> dict[str, Any]:
+    return svc.company_settings(session, svc.get_company(session, cid, user))
+
+
+@router.put("/companies/{cid}/settings", response_model=CompanySettings, tags=["компании"],
+            summary="Изменить комфортный минимум (null — по умолчанию: расходы за 7 дней) и налоговый режим")
+def put_settings(cid: str, body: CompanySettingsIn, user: str = Depends(current_user),
+                 session: Session = Depends(get_session)) -> dict[str, Any]:
+    return svc.update_settings(session, svc.get_company(session, cid, user), body.model_dump(exclude_unset=True))
+
+
+# --------------------------------------------------------------------------- «Как это работает» (для жюри)
+@router.get("/metrics", tags=["как это работает"], summary="Качество прогноза: бэктест ядра (core/reports/metrics.json)")
+def metrics(user: str = Depends(current_user)) -> Any:
+    import json
+
+    p = get_settings().core_path / "reports" / "metrics.json"
+    if not p.exists():
+        raise HTTPException(404, "Отчёт о качестве прогноза ещё не построен")
+    return json.loads(p.read_text(encoding="utf-8"))
+
+
+@router.get("/metrics/sources", tags=["как это работает"], summary="Как источники данных улучшают прогноз (api/reports)")
+def metrics_sources(user: str = Depends(current_user)) -> Any:
+    import json
+    from pathlib import Path
+
+    p = Path(__file__).resolve().parent / "reports" / "sources_effect.json"
+    if not p.exists():
+        raise HTTPException(404, "Отчёт о вкладе источников ещё не построен")
+    from .reports.sources_effect import summary
+
+    return summary(json.loads(p.read_text(encoding="utf-8")))
 
 
 # --------------------------------------------------------------------------- прогноз

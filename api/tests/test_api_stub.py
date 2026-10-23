@@ -23,13 +23,34 @@ def test_login_and_errors(stub):
     assert body["token_type"] == "bearer" and body["access_token"].count(".") == 2
 
 
-def test_companies_list_has_synthetic(stub, auth):
+def test_one_user_one_company_and_demo_mode(stub, auth):
     r = stub.get("/api/companies", headers=auth)
-    ids = [c["company_id"] for c in r.json()]
-    assert "S02" in ids
-    s02 = next(c for c in r.json() if c["company_id"] == "S02")
+    assert [c["company_id"] for c in r.json()] == ["S02"]          # после входа — только своя компания
+    s02 = r.json()[0]
     assert set(s02) == {"company_id", "company_name", "legal_form", "industry", "first_operation_date",
                         "last_operation_date", "operations_count"}
+    assert stub.get("/api/me", headers=auth).json() == {"username": "demo", "company_id": "S02",
+                                                         "company_name": "ООО «Вектор Бизнес-Сервис»"}
+    demo = [c["company_id"] for c in stub.get("/api/companies?demo=true", headers=auth).json()]
+    assert demo[0] == "S02" and {"S01", "S05"} <= set(demo)         # скрытый демо-режим — весь список
+    other = login(stub, "other")
+    assert stub.get("/api/companies", headers=other).json() == []
+    assert stub.put("/api/me", headers=other, json={"company_id": "S05"}).json()["company_id"] == "S05"
+    assert [c["company_id"] for c in stub.get("/api/companies", headers=other).json()] == ["S05"]
+
+
+def test_settings_safety_cushion(stub, auth):
+    st = stub.get("/api/companies/S02/settings", headers=auth).json()
+    assert st["safety_cushion_custom"] is False and st["safety_cushion"] == st["safety_cushion_default"] > 0
+    assert st["tax_regime_estimated"]["regime"] == "osno"
+    st = stub.put("/api/companies/S02/settings", headers=auth, json={"safety_cushion": 500000}).json()
+    assert st["safety_cushion"] == 500000 and st["safety_cushion_custom"] is True
+    f = stub.get("/api/companies/S02/forecast", headers=auth).json()
+    assert any("комфортного минимума" in w and "500" in w for w in f["warnings"])
+    st = stub.put("/api/companies/S02/settings", headers=auth, json={"safety_cushion": None}).json()
+    assert st["safety_cushion_custom"] is False
+    r = stub.put("/api/companies/S02/settings", headers=auth, json={"safety_cushion": -1})
+    assert r.status_code == 422
 
 
 def test_upload_and_isolation(stub, auth):
@@ -38,6 +59,7 @@ def test_upload_and_isolation(stub, auth):
     assert r.status_code == 200, r.text
     cid = r.json()["company_id"]
     assert cid.startswith("s02-") and r.json()["rows"] > 500
+    assert [c["company_id"] for c in stub.get("/api/companies", headers=auth).json()] == [cid]   # новая выписка — моя компания
     assert stub.get(f"/api/companies/{cid}/forecast", headers=auth).status_code == 200
     other = login(stub, "other")
     r = stub.get(f"/api/companies/{cid}/forecast", headers=other)
@@ -171,6 +193,12 @@ def test_transactions_endpoint(stub, auth):
     r = stub.post("/api/companies/S02/transactions", headers=auth, json=[{"amount": 5}])
     assert r.status_code == 422 and "Ни одна операция не принята" in r.json()["detail"]
     assert stub.post("/api/companies/S02/transactions", headers=auth, json=[]).status_code == 400
+
+
+def test_no_jargon_in_sync_messages(stub, auth):
+    for name in ("tax_calendar", "1c", "bank", "registry", "contracts", "invoices"):
+        msg = stub.post(f"/api/companies/S01/integrations/{name}/sync", headers=auth).json().get("message", "")
+        assert not any(w in msg.lower() for w in ("мок", "post /", "json", "p50", "severity")), (name, msg)
 
 
 def test_openapi_docs(stub):

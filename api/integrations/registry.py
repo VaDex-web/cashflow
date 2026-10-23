@@ -90,7 +90,11 @@ class Registry(Integration):
                     "ЗадолженностьПоНалогам": float((h // 7) % 900_000) if h % 17 == 0 else 0.0,
                     "АрбитражныеДелаОтветчик12мес": (h // 11) % 6 if h % 9 == 0 else 0,
                     "ИсполнительныеПроизводства": (h // 13) % 3 if h % 17 == 0 else 0}
-            out.append(assess(str(inn), str(name), info, self.delay_days))
+            st = assess(str(inn), str(name), info, self.delay_days)
+            if st.reasons:
+                st.reasons = [r + " (демонстрационные данные)" for r in st.reasons]
+            st.details["mock"] = True
+            out.append(st)
         return out
 
     def fetch(self, company: CompanyContext) -> list[SourceEvent]:
@@ -113,7 +117,8 @@ class Registry(Integration):
     def message(self, company: CompanyContext, events: list[SourceEvent]) -> str:
         checks = self.check(company)
         bad = [c for c in checks if c.risk_level == "high"]
-        msg = f"Проверено контрагентов: {len(checks)}, с высоким риском: {len(bad)}"
+        src = "" if company.document("registry") else " (демонстрационная проверка)"
+        msg = f"Проверено контрагентов{src}: {len(checks)}, с высоким риском: {len(bad)}"
         if bad:
             msg += " (" + ", ".join(c.name for c in bad[:3]) + ")"
         if events:

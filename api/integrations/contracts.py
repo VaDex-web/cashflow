@@ -134,6 +134,6 @@ class Contracts(Integration):
 
     def message(self, company: CompanyContext, events: list[SourceEvent]) -> str:
         if company.document("contracts") is None:
-            return "Файл договоров не загружен: POST /api/companies/{id}/integrations/contracts/upload"
+            return "Файл с договорами ещё не загружен."
         total_in = sum(e.amount for e in events if e.direction == "in")
         return f"Платежей по договорам: {len(events)}, поступлений на {rub(total_in)}."

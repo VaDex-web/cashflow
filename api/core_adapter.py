@@ -43,7 +43,7 @@ class StubCore:
         return df
 
     def build(self, df: pd.DataFrame, events: list[dict[str, Any]], horizon: int, company_id: str,
-              base_state: Any = None) -> dict[str, Any]:
+              base_state: Any = None, threshold: float = 0.0) -> dict[str, Any]:
         return {"company_id": company_id, "events": copy.deepcopy(events), "horizon": horizon, "n_rows": len(df)}
 
     def forecast(self, state: dict[str, Any], horizon: int, scenario: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -93,11 +93,12 @@ class RealCore:
         return self.m.load_statement(src)
 
     def build(self, df: pd.DataFrame, events: list[dict[str, Any]], horizon: int, company_id: str,
-              base_state: Any = None) -> Any:
+              base_state: Any = None, threshold: float = 0.0) -> Any:
+        """``threshold`` — порог риска: комфортный минимум остатка владельца (0 — риск = уход в минус)."""
         s = get_settings()
         if not self.has_state:
             return {"df": df, "events": events, "horizon": horizon, "company_id": company_id}
-        kw: dict[str, Any] = {"company_id": company_id, "n_sims": s.n_sims}
+        kw: dict[str, Any] = {"company_id": company_id, "n_sims": s.n_sims, "threshold": float(threshold)}
         src = df
         if base_state is not None and getattr(base_state, "categorizer", None) is not None:
             # события поменялись, операции те же: переиспользуем обученный категоризатор (в 2 раза быстрее)

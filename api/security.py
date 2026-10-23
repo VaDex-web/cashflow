@@ -35,14 +35,21 @@ def verify_password(password: str, stored: str) -> bool:
 
 
 def ensure_users(session: Session) -> None:
-    """Создать пользователей из API_USERS («логин:пароль,…»), если их ещё нет."""
-    for pair in get_settings().users.split(","):
-        if ":" not in pair:
+    """Создать пользователей из API_USERS («логин:пароль[:компания],…»), если их ещё нет.
+
+    Третья часть — компания пользователя (один пользователь = одна компания), например ``demo:demo:S02``.
+    """
+    for item in get_settings().users.split(","):
+        if ":" not in item:
             continue
-        login, pwd = pair.split(":", 1)
-        login = login.strip()
-        if login and not session.scalar(select(User).where(User.username == login)):
-            session.add(User(username=login, password_hash=hash_password(pwd)))
+        parts = item.split(":", 2)
+        login, pwd = parts[0].strip(), parts[1]
+        company = parts[2].strip() if len(parts) > 2 else None
+        user = session.scalar(select(User).where(User.username == login))
+        if login and user is None:
+            session.add(User(username=login, password_hash=hash_password(pwd), company_id=company or None))
+        elif user is not None and company and not user.company_id:
+            user.company_id = company
     session.commit()
 
 
