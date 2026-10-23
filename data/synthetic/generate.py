@@ -120,24 +120,20 @@ class Party:
 
 
 def fake_inn(name: str, person: bool = False) -> str:
-    """Обезличенный ИНН: детерминирован по имени, ~30% с ведущими нулями (как в датасете)."""
+    """Обезличенный ИНН: детерминирован по имени, начинается с «00», как в датасете организаторов."""
     h = hashlib.sha256(name.encode("utf-8")).hexdigest()
     digits = "".join(str(int(c, 16) % 10) for c in h)
-    n = 12 if person else 10
-    s = digits[:n]
-    if int(h[-2:], 16) % 10 < 3:
-        s = "00" + s[2:]
-    return s
+    return "00" + digits[:(12 if person else 10) - 2]
 
 
 def P(name: str, person: bool = False, inn: str | None = None) -> Party:
     return Party(name, inn if inn is not None else fake_inn(name, person))
 
 
-BANK = Party("ПАО КБ «Центр-инвест»", "0061630113")
+BANK = Party("ПАО «Банк»", "0068275202")          # как в датасете: банк, где открыт счёт
 FNS = Party("Казначейство России (ФНС России)", "7727406020")
 NO_PERSON = Party("Физическое лицо", "")
-OTHER_BANK = "АО «Т-Банк»"
+OTHER_BANK = "АО «Банк-2»"
 
 
 @dataclass
@@ -234,13 +230,14 @@ class Book:
             sd = mday(y, m, salary_day)
             reg += 1
             self.add(sd, "out", prev_total * (1 - advance_share), BANK,
-                     f"Перечисление заработной платы за {MONTHS[pm - 1]} {py} г. по реестру №{reg} от {dmy(prev_bd(sd))}. "
-                     f"НДС не облагается", "payroll", "backward", expense=True,
+                     f"Перечисление заработной платы (окончательный расчет) за {MONTHS[pm - 1]} {py} г. по реестру № {reg} "
+                     f"от {dmy(prev_bd(sd))}. НДС не облагается", "payroll", "backward", expense=True,
                      meta={"payroll": {"kind": "Зарплата", "employees": employees, "registry": reg}})
             ad = mday(y, m, advance_day)
             reg += 1
             self.add(ad, "out", total * advance_share, BANK,
-                     f"Перечисление аванса по заработной плате за {MONTHS[m - 1]} {y} г. по реестру №{reg}. НДС не облагается",
+                     f"Перечисление заработной платы (аванс) за {MONTHS[m - 1]} {y} г. по реестру № {reg} "
+                     f"от {dmy(prev_bd(ad))}. НДС не облагается",
                      "payroll", "backward", expense=True,
                      meta={"payroll": {"kind": "Аванс", "employees": employees, "registry": reg}})
             if m == 12 and bonus_month:
@@ -873,7 +870,7 @@ def write_statement(path: Path, cid: str, rows: list[dict[str, Any]], fmt: str) 
             w.writerow(["company_id", "operation_id", "operation_date", "amount", "direction", "counterparty_inn",
                         "counterparty_name", "payment_purpose", "balance_eod"])
             for i, r in enumerate(rows, 1):
-                w.writerow([cid, i, r["date"].isoformat(), f"{r['amount']:.2f}",
+                w.writerow([cid, f"{cid}-{i:06d}", r["date"].isoformat(), f"{r['amount']:.2f}",
                             "Поступление" if r["direction"] == "in" else "Списание", r["counterparty_inn"],
                             r["counterparty_name"], r["purpose"], f"{r['balance_eod']:.2f}"])
         else:
