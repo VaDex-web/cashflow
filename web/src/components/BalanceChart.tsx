@@ -97,7 +97,7 @@ export function BalanceChart({ base, compare, events = [], risks = [], start, co
           <YAxis domain={[yMin, yMax]} ticks={ticks} interval={0} tickFormatter={fmtRubShort} tick={{ fontSize: 12, fill: '#7a8a80' }} tickLine={false} axisLine={false} width={76} />
           {comfort != null && comfort > 0 && comfort < yMax && (
             <ReferenceLine y={comfort} stroke="#d98a00" strokeDasharray="6 4" strokeWidth={1.5}
-              label={{ value: `комфортный минимум ${fmtRubShort(comfort)} ₽`, position: 'insideTopLeft', fill: '#9a6200', fontSize: 11 }} />
+              label={{ value: `комфортный минимум ${fmtRubShort(comfort)} ₽`, position: 'insideTopRight', fill: '#9a6200', fontSize: 11 }} />
           )}
           <ReferenceLine y={0} stroke="#d23b3b" strokeWidth={1.5} label={{ value: '0 ₽ — деньги закончились', position: 'insideBottomLeft', fill: '#d23b3b', fontSize: 11 }} />
 

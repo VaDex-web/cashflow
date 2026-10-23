@@ -16,9 +16,13 @@ const CARDS: { type: ScenarioType; icon: string; title: string; text: string }[]
   { type: 'fixed_cost_growth', icon: '🏢', title: 'Вырастут постоянные расходы', text: 'Аренда, зарплата, кредиты подорожают' },
 ]
 
+/** Первый разрыв по ожидаемому остатку: дата и нехватка в первые 10 дней разрыва — как на главной карточке */
 function firstGap(f: ForecastResult) {
   const neg = f.daily.filter((d) => d.balance_p50 < 0)
-  return neg.length ? { date: neg[0].date, max: -Math.min(...neg.map((d) => d.balance_p50)) } : null
+  if (!neg.length) return null
+  const to = parseDate(neg[0].date).getTime() + 10 * 86_400_000
+  const win = neg.filter((d) => parseDate(d.date).getTime() <= to)
+  return { date: neg[0].date, max: Math.round(-Math.min(...win.map((d) => d.balance_p50)) / 1000) * 1000 }
 }
 
 export function Scenarios() {
