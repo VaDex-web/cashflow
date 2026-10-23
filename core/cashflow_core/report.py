@@ -13,7 +13,7 @@ import argparse
 import json
 import os
 import time
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -269,9 +269,28 @@ def main(argv: list[str] | None = None) -> int:
     kw = {"horizon": a.horizon, "n_origins": a.origins, "step": a.step, "n_sims": a.sims, "seed": a.seed,
           "models": DEFAULT_MODELS}
     t0 = time.time()
-    jobs = [(str(statements / f"{c}.csv"), c, kw) for c in cids]
+    # результат по каждой компании сохраняется сразу: обрыв прогона не теряет прогресс,
+    # повторный запуск с теми же настройками досчитывает только недостающее
+    cache = out / "_cache"
+    cache.mkdir(parents=True, exist_ok=True)
+    tag = f"h{a.horizon}_o{a.origins}_s{a.step}_n{a.sims}_seed{a.seed}"
+    results: list[dict[str, Any]] = []
+    todo = []
+    for c in cids:
+        f = cache / f"{c}_{tag}.json"
+        if f.exists():
+            results.append(json.loads(f.read_text(encoding="utf-8")))
+        else:
+            todo.append((str(statements / f"{c}.csv"), c, kw))
+    print(f"из кэша: {len(results)}, считать: {len(todo)}", flush=True)
     with ProcessPoolExecutor(max_workers=a.workers) as ex:
-        results = list(ex.map(_one, jobs))
+        futs = {ex.submit(_one, j): j[1] for j in todo}
+        for fut in as_completed(futs):
+            r = fut.result()
+            results.append(r)
+            if not r.get("error"):
+                (cache / f"{r['company_id']}_{tag}.json").write_text(json.dumps(r), encoding="utf-8")
+            print(f"готово {len(results)}/{len(cids)}: {r['company_id']} ({time.time() - t0:.0f} с)", flush=True)
     failed = [r["company_id"] for r in results if r.get("error")]
     met = aggregate([r for r in results if not r.get("error")])
     cat = categorization_report(statements, cids)
