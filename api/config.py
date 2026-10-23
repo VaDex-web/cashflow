@@ -54,6 +54,8 @@ class Settings:
     default_horizon: int = 30
     #: на сколько дней сдвигать в прогнозе ожидаемую оплату от «проблемного» контрагента (открытые реестры)
     registry_delay_days: int = field(default_factory=lambda: int(os.getenv("REGISTRY_DELAY_DAYS", "14")))
+    #: POST /api/predict без входа — прогноз для проверки на контрольном датасете (false — отключить)
+    public_predict: bool = field(default_factory=lambda: _bool("PUBLIC_PREDICT", True))
     #: число траекторий Monte Carlo в ядре (меньше — быстрее, для тестов)
     n_sims: int = field(default_factory=lambda: int(os.getenv("CORE_N_SIMS", "2000")))
 
