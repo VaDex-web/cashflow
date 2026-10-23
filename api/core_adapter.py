@@ -43,7 +43,7 @@ class StubCore:
         return df
 
     def build(self, df: pd.DataFrame, events: list[dict[str, Any]], horizon: int, company_id: str,
-              base_state: Any = None, threshold: float = 0.0) -> dict[str, Any]:
+              base_state: Any = None, comfort_balance: float | None = None) -> dict[str, Any]:
         return {"company_id": company_id, "events": copy.deepcopy(events), "horizon": horizon, "n_rows": len(df)}
 
     def forecast(self, state: dict[str, Any], horizon: int, scenario: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -56,7 +56,8 @@ class StubCore:
         r["sources_used"] = sorted({"bank", *(e["source"] for e in state["events"])}) if ids else r["sources_used"]
         return r
 
-    def scenario(self, state: dict[str, Any], scenario: dict[str, Any], horizon: int) -> dict[str, Any]:
+    def scenario(self, state: dict[str, Any], scenario: dict[str, Any], horizon: int,
+                 base_adjustment: dict[str, Any] | None = None) -> dict[str, Any]:
         r = self._mock("scenario_result.json")
         for k in ("base", "scenario"):
             r[k]["company_id"] = state["company_id"]
@@ -93,12 +94,14 @@ class RealCore:
         return self.m.load_statement(src)
 
     def build(self, df: pd.DataFrame, events: list[dict[str, Any]], horizon: int, company_id: str,
-              base_state: Any = None, threshold: float = 0.0) -> Any:
-        """``threshold`` — порог риска: комфортный минимум остатка владельца (0 — риск = уход в минус)."""
+              base_state: Any = None, comfort_balance: float | None = None) -> Any:
+        """Порог разрыва — 0 ₽; ``comfort_balance`` — комфортный минимум владельца (второй вид риска, контракт)."""
         s = get_settings()
         if not self.has_state:
             return {"df": df, "events": events, "horizon": horizon, "company_id": company_id}
-        kw: dict[str, Any] = {"company_id": company_id, "n_sims": s.n_sims, "threshold": float(threshold)}
+        kw: dict[str, Any] = {"company_id": company_id, "n_sims": s.n_sims, "threshold": 0.0}
+        if comfort_balance is not None:
+            kw["comfort_balance"] = float(comfort_balance)
         src = df
         if base_state is not None and getattr(base_state, "categorizer", None) is not None:
             # события поменялись, операции те же: переиспользуем обученный категоризатор (в 2 раза быстрее)
@@ -106,16 +109,47 @@ class RealCore:
             src = base_state.df
         return self.m.build_state(src, events, max(horizon, 30), **kw)
 
+    def _run(self, state: Any, horizon: int, scenarios: list[dict[str, Any]]) -> tuple[dict[str, Any], Any, Any]:
+        """Прогноз по состоянию с цепочкой сценариев и полем ``risks[].kind`` (контракт).
+
+        Те же шаги, что ``forecast_from_state`` ядра, но сценариев может быть несколько (поправка по реестрам +
+        сценарий пользователя), а риски берутся с видом: ``gap`` (ниже 0 ₽) или ``below_comfort``.
+        """
+        from cashflow_core.engine import build_plan, ensure_error_horizon, make_result, simulate  # noqa: PLC0415
+        from cashflow_core.risk import find_risks  # noqa: PLC0415
+        from cashflow_core.scenarios import apply_scenario  # noqa: PLC0415
+
+        ensure_error_horizon(state, horizon)
+        plan = build_plan(state, horizon)
+        for sc in scenarios:
+            plan = apply_scenario(state, plan, sc)
+        sim = simulate(state, plan)
+        res = make_result(state, plan, sim)
+        res["risks"] = find_risks(state, plan, sim, with_kind=True)
+        return res, plan, sim
+
     def forecast(self, state: Any, horizon: int, scenario: dict[str, Any] | None = None) -> dict[str, Any]:
         if isinstance(state, dict):
             return self.m.forecast(state["df"], state["events"], horizon, scenario=scenario, company_id=state["company_id"])
-        return self.m.forecast_from_state(state, horizon, scenario)
+        return self._run(state, horizon, [scenario] if scenario else [])[0]
 
-    def scenario(self, state: Any, scenario: dict[str, Any], horizon: int) -> dict[str, Any]:
+    def scenario(self, state: Any, scenario: dict[str, Any], horizon: int,
+                 base_adjustment: dict[str, Any] | None = None) -> dict[str, Any]:
+        """``base_adjustment`` — поправка основного прогноза (задержка проблемного контрагента по реестрам):
+        входит и в базу, и в сценарий, чтобы база совпадала с ``GET /forecast``."""
         if isinstance(state, dict):
             return self.m.run_scenarios(state["df"], state["events"], scenario, company_id=state["company_id"],
                                         horizon=horizon)
-        return self.m.run_scenarios(state, scenario=scenario, horizon=horizon)
+        from cashflow_core.risk import gap_summary  # noqa: PLC0415
+
+        base_chain = [base_adjustment] if base_adjustment else []
+        scn_chain = [a for a in base_chain if not _same_delay(a, scenario)] + [scenario]
+        base, bp, bs = self._run(state, horizon, base_chain)
+        scn, sp, ss = self._run(state, horizon, scn_chain)
+        gb, gs = gap_summary(bp, bs, 0.0), gap_summary(sp, ss, 0.0)
+        return {"base": base, "scenario": scn, "delta": {
+            "first_gap_date": gs["first_gap_date"], "max_shortfall": gs["max_shortfall"],
+            "first_gap_date_base": gb["first_gap_date"], "max_shortfall_base": gb["max_shortfall"]}}
 
     def update(self, state: Any, rows: list[dict[str, Any]]) -> tuple[Any, dict[str, Any]]:
         if isinstance(state, dict):
@@ -138,6 +172,15 @@ class RealCore:
         if isinstance(state, dict):
             return state.get("events", [])
         return getattr(state, "events", None) or []
+
+
+def _same_delay(a: dict[str, Any], b: dict[str, Any]) -> bool:
+    """Пользователь сам задаёт задержку того же клиента — поправку по реестрам не складываем с ней."""
+    if a.get("type") != "client_delay" or b.get("type") != "client_delay":
+        return False
+    ta = str(a["params"].get("counterparty_or_event_id", "")).strip().lower()
+    tb = str(b["params"].get("counterparty_or_event_id", "")).strip().lower()
+    return bool(ta) and (ta == tb or ta in tb or tb in ta)
 
 
 _backend: StubCore | RealCore | None = None

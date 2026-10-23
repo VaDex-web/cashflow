@@ -401,7 +401,8 @@ def _event_dicts(rows: list[EventRow]) -> list[dict[str, Any]]:
 
 
 def _key(company: Company, events: list[dict[str, Any]], checks: dict[str, Any], horizon: int, cushion: float = 0.0) -> str:
-    blob = json.dumps([events, checks, horizon, get_settings().registry_delay_days, round(cushion, 2)], sort_keys=True,
+    # "risk-v2": порог разрыва 0 ₽ + комфортный минимум отдельно — старые сохранённые состояния пересобираются
+    blob = json.dumps(["risk-v2", events, checks, horizon, get_settings().registry_delay_days, round(cushion, 2)], sort_keys=True,
                       ensure_ascii=False, default=str)
     return f"{get_core().name}:{company.tx_version}:{hashlib.sha1(blob.encode()).hexdigest()[:16]}"
 
@@ -443,7 +444,7 @@ def get_state(session: Session, company: Company, horizon: int = 30) -> tuple[An
         if item and item[0].split(":")[-2] == str(company.tx_version) and not isinstance(item[1], dict):
             base = item[1]
         df = company_df(session, company) if base is None else pd.DataFrame()
-        state = core.build(df, core_events, H, company.id, base_state=base, threshold=cushion)
+        state = core.build(df, core_events, H, company.id, base_state=base, comfort_balance=cushion)
         _cache[company.id] = (key, state)
         _save_state(session, company, key, state)
         return state, notes
@@ -506,7 +507,8 @@ def _cushion_note(session: Session, company: Company) -> list[str]:
     if eff <= 0:
         return []
     how = "вы задали сами" if custom else "по умолчанию — расходы примерно за 7 дней"
-    return [f"Риск считаем от вашего комфортного минимума на счёте — {rub(eff)} ({how}); изменить можно в настройках."]
+    return [f"Кассовый разрыв — когда на счёте меньше 0 ₽. Отдельно предупреждаем, если остаток опустится ниже вашего "
+            f"комфортного минимума — {rub(eff)} ({how}); изменить можно в настройках."]
 
 
 def _registry_adjustment(session: Session, company: Company) -> tuple[dict[str, Any] | None, list[str]]:
@@ -520,17 +522,16 @@ def _registry_adjustment(session: Session, company: Company) -> tuple[dict[str, 
 
 def scenario(session: Session, company: Company, sc: dict[str, Any], horizon: int = 30) -> dict[str, Any]:
     state, notes = get_state(session, company, horizon)
-    adj, _ = _registry_adjustment(session, company)
-    if adj:
-        notes = notes + [f"В этом сравнении риск задержки от {adj['params']['counterparty_or_event_id']} (открытые реестры) "
-                         f"не учтён — он показан в основном прогнозе."]
+    adj, adj_notes = _registry_adjustment(session, company)
+    notes = notes + adj_notes + _cushion_note(session, company)
     sc = copy.deepcopy(sc)
     if sc["type"] == "client_delay":
         # id события из /events → его контрагент: ядро сдвинет все поступления клиента (регулярные и счета)
         target = str(sc["params"]["counterparty_or_event_id"]).strip()
         row = session.scalar(select(EventRow).where(EventRow.company_id == company.id, EventRow.id == target))
         sc["params"]["counterparty_or_event_id"] = (row.counterparty or target) if row is not None else target
-    res = get_core().scenario(state, sc, horizon)
+    # поправка по реестрам входит и в базу, и в сценарий: база совпадает с GET /forecast
+    res = get_core().scenario(state, sc, horizon, base_adjustment=adj)
     extra = notes + _api_notes(session, company)
     return {"base": _finish(res["base"], company, extra), "scenario": _finish(res["scenario"], company, extra),
             "delta": {"first_gap_date": res.get("delta", {}).get("first_gap_date"),

@@ -1,7 +1,7 @@
 """Pydantic-схемы строго по docs/contract.md.
 
 Event, Scenario, ForecastResult, ScenarioResult, PlanFact и ответы эндпоинтов. Необязательные поля
-контракта (warnings, current_balance, as_of, daily[].events) объявлены Optional и не выводятся,
+контракта (warnings, current_balance, as_of, comfort_balance, daily[].events, risks[].kind) объявлены Optional и не выводятся,
 если ядро их не вернуло (``response_model_exclude_none``).
 """
 from __future__ import annotations
@@ -120,6 +120,7 @@ class Risk(_Model):
     severity: Severity
     reason: str
     recommendations: list[str] = Field(default_factory=list)
+    kind: Optional[Literal["gap", "below_comfort"]] = None  # gap — ниже 0 ₽, below_comfort — ниже комфортного минимума
 
 
 class Recurring(_Model):
@@ -147,6 +148,7 @@ class ForecastResult(_Model):
     warnings: Optional[list[str]] = None
     current_balance: Optional[float] = None
     as_of: Optional[str] = None
+    comfort_balance: Optional[float] = None  # комфортный минимум на счёте, ₽
 
 
 class ScenarioDelta(_Model):

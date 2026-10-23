@@ -73,3 +73,22 @@ def test_safety_cushion_raises_risk_earlier(real):
     p0 = max((r["probability"] for r in f0["risks"]), default=0)
     p1 = max((r["probability"] for r in f1["risks"]), default=0)
     assert p1 >= p0
+
+
+def test_risk_kinds_and_scenario_base_matches_forecast(real):
+    """Порог разрыва 0 ₽, комфортный минимум — отдельный вид риска; база «что если» = основной прогноз."""
+    h = login(real)
+    assert real.put("/api/companies/S02/settings", headers=h, json={"safety_cushion": None}).status_code == 200
+    for name in ("tax_calendar", "1c", "bank", "registry"):
+        assert real.post(f"/api/companies/S02/integrations/{name}/sync", headers=h).status_code == 200
+    f = real.get("/api/companies/S02/forecast", headers=h).json()
+    assert f["comfort_balance"] > 0
+    assert f["risks"] and all(r["kind"] in ("gap", "below_comfort") for r in f["risks"])
+    for r in f["risks"]:
+        if r["kind"] == "gap":  # разрыв — остаток ниже нуля хотя бы в части вариантов
+            day = next(d for d in f["daily"] if d["date"] == r["date"])
+            assert day["balance_low"] < 0
+    sc = real.post("/api/companies/S02/scenarios/run", headers=h,
+                   json={"type": "revenue_drop", "params": {"percent": 20}}).json()
+    ScenarioResult.model_validate(sc)
+    assert [d["balance_p50"] for d in sc["base"]["daily"]] == [d["balance_p50"] for d in f["daily"]]
