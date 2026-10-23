@@ -21,7 +21,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from .backtest import DEFAULT_MODELS, aggregate, backtest, metrics_table
+from .backtest import DEFAULT_MODELS, aggregate, backtest, calibrate_interval_scale, metrics_table
 
 _COLORS = {"naive": "#eb6834", "ets": "#1baf7a", "hybrid": "#2a78d6"}
 _LABELS = {"naive": "Наивная (повтор 28 дней)", "ets": "Сезонная ETS-подобная", "hybrid": "Гибрид (наш)"}
@@ -123,7 +123,8 @@ def plot_errors(met: dict[str, Any], path: Path) -> None:
     plt.close(fig)
 
 
-def write_markdown(met: dict[str, Any], meta: dict[str, Any], cat: dict[str, Any], path: Path) -> None:
+def write_markdown(met: dict[str, Any], meta: dict[str, Any], cat: dict[str, Any], path: Path,
+                   calib: dict[str, Any] | None = None) -> None:
     tab = metrics_table(met)
     def fmt(v: Any) -> str:
         if v is None or (isinstance(v, float) and np.isnan(v)):
@@ -164,7 +165,16 @@ def write_markdown(met: dict[str, Any], meta: dict[str, Any], cat: dict[str, Any
               f"предупреждение в среднем за {g.get('lead_days_mean', '—')} дн., ошибка даты (медиана) "
               f"{g.get('date_error_days_median', '—')} дн., Brier {g.get('brier', '—')}.",
               f"* По фактическому остатку: TP {ga.get('tp')}, FP {ga.get('fp')}, FN {ga.get('fn')}, TN {ga.get('tn')}.",
-              "", "## Методика и оговорки",
+              ""]
+    if calib and calib.get("hybrid", {}).get("k"):
+        c = calib["hybrid"]
+        lines += ["## Калибровка интервалов (гибрид)",
+                  f"Множитель ширины подобран на ранних отсечках каждой компании ({c['n_early']} прогнозов) и проверен "
+                  f"на поздних ({c['n_late']}): k = **{c['k']}**. Покрытие P10–P90 на поздних отсечках: "
+                  f"{fmt(c['coverage_late_before'])} → **{fmt(c['coverage_late_after'])}** (норма 80%)."
+                  + ("" if c.get("exact") else " Оценка приближённая (симметричный интервал): в этом прогоне границы "
+                     "не записывались отдельно."), ""]
+    lines += ["## Методика и оговорки",
               "* Rolling origin: на каждой дате отсечения модель обучается только на прошлом (категории, регулярные "
               "платежи, налоги, модели потоков), прогноз на 30 дней сравнивается с фактом.",
               "* Цель для всех моделей одна — остаток **без** пополнений собственными средствами и займов "
@@ -236,7 +246,7 @@ def write_all(detail: dict[str, Any], out: Path, data: Path | None = None) -> No
     (out / "metrics_detail.json").write_text(json.dumps(detail, ensure_ascii=False, indent=2), encoding="utf-8")
     (out / "metrics.json").write_text(json.dumps(contract_metrics(met, meta, series), ensure_ascii=False, indent=2),
                                       encoding="utf-8")
-    write_markdown(met, meta, cat, out / "metrics.md")
+    write_markdown(met, meta, cat, out / "metrics.md", detail.get("calibration"))
     plot_errors(met, out / "errors.png")
 
 
@@ -306,7 +316,10 @@ def main(argv: list[str] | None = None) -> int:
         per_company[r["company_id"]] = {k: {"mae_pct_turnover": v["balance_mae_pct_turnover"],
                                             "coverage": v["coverage_p10_p90"]}
                                         for k, v in m1.items() if not k.startswith("_")}
-    write_all({"meta": meta, "models": met, "categorization": cat, "per_company": per_company}, out, data)
+    ok = [r for r in results if not r.get("error")]
+    calib = {m: calibrate_interval_scale(ok, m) for m in ("naive", "ets", "hybrid")}
+    write_all({"meta": meta, "models": met, "categorization": cat, "per_company": per_company,
+               "calibration": calib}, out, data)
     print(metrics_table(met).to_string())
     print(f"\nСохранено в {out} за {meta['runtime_sec']} с; ошибки: {failed or 'нет'}")
     return 0
