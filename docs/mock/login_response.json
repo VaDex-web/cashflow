@@ -1,0 +1,4 @@
+{
+  "access_token": "mock.jwt.token",
+  "token_type": "bearer"
+}

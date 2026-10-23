@@ -1,0 +1,66 @@
+[
+  {
+    "name": "Зарплата (2-я половина месяца)",
+    "direction": "out",
+    "amount_avg": 405000,
+    "period_days": 30,
+    "next_date": "2026-10-26",
+    "confidence": 0.95
+  },
+  {
+    "name": "Аванс сотрудникам",
+    "direction": "out",
+    "amount_avg": 166000,
+    "period_days": 30,
+    "next_date": "2026-11-10",
+    "confidence": 0.93
+  },
+  {
+    "name": "Аренда склада — ИП Карапетян А.С.",
+    "direction": "out",
+    "amount_avg": 185000,
+    "period_days": 30,
+    "next_date": "2026-11-02",
+    "confidence": 0.98
+  },
+  {
+    "name": "Единый налоговый платёж",
+    "direction": "out",
+    "amount_avg": 161000,
+    "period_days": 30,
+    "next_date": "2026-10-28",
+    "confidence": 0.9
+  },
+  {
+    "name": "Кредит на оборудование — Центр-Инвест",
+    "direction": "out",
+    "amount_avg": 96500,
+    "period_days": 30,
+    "next_date": "2026-11-06",
+    "confidence": 0.99
+  },
+  {
+    "name": "ООО «Кофейня Ромашка» — оплата поставок",
+    "direction": "in",
+    "amount_avg": 138000,
+    "period_days": 19,
+    "next_date": "2026-10-28",
+    "confidence": 0.78
+  },
+  {
+    "name": "Связь и интернет — ПАО «Ростелеком»",
+    "direction": "out",
+    "amount_avg": 6400,
+    "period_days": 30,
+    "next_date": "2026-11-03",
+    "confidence": 0.88
+  },
+  {
+    "name": "Эквайринг — поступления от розницы",
+    "direction": "in",
+    "amount_avg": 58000,
+    "period_days": 1,
+    "next_date": "2026-10-26",
+    "confidence": 0.72
+  }
+]

@@ -1,0 +1,6 @@
+{
+  "type": "revenue_drop",
+  "params": {
+    "percent": 30
+  }
+}

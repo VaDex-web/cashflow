@@ -1,0 +1,48 @@
+[
+  {
+    "period": "2026-09-28",
+    "planned_in": 1020000,
+    "actual_in": 1005000,
+    "planned_out": 890000,
+    "actual_out": 902000,
+    "deviations": []
+  },
+  {
+    "period": "2026-10-05",
+    "planned_in": 1180000,
+    "actual_in": 1164000,
+    "planned_out": 1050000,
+    "actual_out": 1038000,
+    "deviations": []
+  },
+  {
+    "period": "2026-10-12",
+    "planned_in": 1240000,
+    "actual_in": 1018000,
+    "planned_out": 960000,
+    "actual_out": 1012000,
+    "deviations": [
+      {
+        "event_id": "ev-lakomka-1016",
+        "text": "«Пекарня Лакомка» не оплатила счёт №301 на 210 000 ₽ (ожидали 16 октября)"
+      },
+      {
+        "event_id": "manual-fuel",
+        "text": "Расходы на топливо выше плана на 52 000 ₽"
+      }
+    ]
+  },
+  {
+    "period": "2026-10-19",
+    "planned_in": 980000,
+    "actual_in": 905000,
+    "planned_out": 870000,
+    "actual_out": 884000,
+    "deviations": [
+      {
+        "event_id": "ev-gorodok-1021",
+        "text": "«Ресторанный двор Городок» заплатил на 75 000 ₽ меньше счёта (частичная оплата)"
+      }
+    ]
+  }
+]

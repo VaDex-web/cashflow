@@ -1,0 +1,156 @@
+[
+  {
+    "id": "ev-lakomka-1016",
+    "type": "invoice",
+    "direction": "in",
+    "amount": 210000,
+    "date": "2026-10-16",
+    "source": "1c",
+    "status": "overdue",
+    "counterparty": "ООО «Пекарня Лакомка»",
+    "note": "Счёт №301 — не оплачен"
+  },
+  {
+    "id": "ev-romashka-1009",
+    "type": "contract",
+    "direction": "in",
+    "amount": 140000,
+    "date": "2026-10-09",
+    "source": "1c",
+    "status": "paid",
+    "counterparty": "ООО «Кофейня Ромашка»",
+    "note": "Оплата по договору №47"
+  },
+  {
+    "id": "ev-payroll-1010",
+    "type": "payroll",
+    "direction": "out",
+    "amount": 168000,
+    "date": "2026-10-09",
+    "source": "1c",
+    "status": "paid",
+    "counterparty": "Сотрудники (12 чел.)",
+    "note": "Аванс за октябрь"
+  },
+  {
+    "id": "ev-payroll-1026",
+    "type": "payroll",
+    "direction": "out",
+    "amount": 412000,
+    "date": "2026-10-26",
+    "source": "1c",
+    "status": "expected",
+    "counterparty": "Сотрудники (12 чел.)",
+    "note": "Зарплата за 2-ю половину октября"
+  },
+  {
+    "id": "ev-tax-1028",
+    "type": "tax",
+    "direction": "out",
+    "amount": 168000,
+    "date": "2026-10-28",
+    "source": "tax_calendar",
+    "status": "expected",
+    "counterparty": "ФНС России",
+    "note": "Единый налоговый платёж: НДФЛ и страховые взносы"
+  },
+  {
+    "id": "ev-romashka-1028",
+    "type": "contract",
+    "direction": "in",
+    "amount": 140000,
+    "date": "2026-10-28",
+    "source": "1c",
+    "status": "expected",
+    "counterparty": "ООО «Кофейня Ромашка»",
+    "note": "Оплата по договору поставки №47"
+  },
+  {
+    "id": "ev-rent-1102",
+    "type": "contract",
+    "direction": "out",
+    "amount": 185000,
+    "date": "2026-11-02",
+    "source": "bank",
+    "status": "expected",
+    "counterparty": "ИП Карапетян А.С.",
+    "note": "Аренда склада, ноябрь"
+  },
+  {
+    "id": "ev-supplier-1105",
+    "type": "invoice",
+    "direction": "out",
+    "amount": 465000,
+    "date": "2026-11-05",
+    "source": "1c",
+    "status": "expected",
+    "counterparty": "ООО «Агрокомплекс Дон»",
+    "note": "Счёт №1182 за овощи и молочку"
+  },
+  {
+    "id": "ev-loan-1106",
+    "type": "loan",
+    "direction": "out",
+    "amount": 96500,
+    "date": "2026-11-06",
+    "source": "bank",
+    "status": "expected",
+    "counterparty": "Банк Центр-Инвест",
+    "note": "Платёж по кредиту на оборудование"
+  },
+  {
+    "id": "ev-payroll-1110",
+    "type": "payroll",
+    "direction": "out",
+    "amount": 168000,
+    "date": "2026-11-10",
+    "source": "1c",
+    "status": "expected",
+    "counterparty": "Сотрудники (12 чел.)",
+    "note": "Аванс за ноябрь"
+  },
+  {
+    "id": "ev-gorodok-1109",
+    "type": "invoice",
+    "direction": "in",
+    "amount": 720000,
+    "date": "2026-11-09",
+    "source": "1c",
+    "status": "expected",
+    "counterparty": "ООО «Ресторанный двор Городок»",
+    "note": "Оплата счёта №318"
+  },
+  {
+    "id": "ev-registry-1116",
+    "type": "contract",
+    "direction": "in",
+    "amount": 260000,
+    "date": "2026-11-16",
+    "source": "open_registry",
+    "status": "expected",
+    "counterparty": "МБОУ СОШ №52",
+    "note": "Госконтракт на питание (zakupki.gov.ru), этап 2"
+  },
+  {
+    "id": "ev-manual-1118",
+    "type": "manual",
+    "direction": "out",
+    "amount": 120000,
+    "date": "2026-11-18",
+    "source": "manual",
+    "status": "expected",
+    "counterparty": "ООО «ХолодТехСервис»",
+    "note": "Ремонт холодильной камеры — договорились устно"
+  },
+  {
+    "id": "ev-supplier-1120",
+    "type": "invoice",
+    "direction": "out",
+    "amount": 900000,
+    "date": "2026-11-20",
+    "source": "1c",
+    "status": "expected",
+    "counterparty": "ООО «Агрокомплекс Дон»",
+    "note": "Предоплата закупки к новогоднему сезону"
+  }
+]

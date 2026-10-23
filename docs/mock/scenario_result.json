@@ -1,0 +1,634 @@
+{
+  "base": {
+    "company_id": "demo-yuzhny-vkus",
+    "generated_at": "2026-10-23T18:30:00+03:00",
+    "horizon_days": 30,
+    "as_of": "2026-10-23",
+    "current_balance": 500000,
+    "daily": [
+      {
+        "date": "2026-10-24",
+        "balance_p50": 523200,
+        "balance_low": 453353,
+        "balance_high": 593047
+      },
+      {
+        "date": "2026-10-25",
+        "balance_p50": 523200,
+        "balance_low": 422544,
+        "balance_high": 623856
+      },
+      {
+        "date": "2026-10-26",
+        "balance_p50": 148200,
+        "balance_low": 23159,
+        "balance_high": 273241,
+        "events": [
+          "ev-payroll-1026"
+        ]
+      },
+      {
+        "date": "2026-10-27",
+        "balance_p50": 185200,
+        "balance_low": 39098,
+        "balance_high": 331302
+      },
+      {
+        "date": "2026-10-28",
+        "balance_p50": 194200,
+        "balance_low": 29161,
+        "balance_high": 359239,
+        "events": [
+          "ev-tax-1028",
+          "ev-romashka-1028"
+        ]
+      },
+      {
+        "date": "2026-10-29",
+        "balance_p50": 231200,
+        "balance_low": 48734,
+        "balance_high": 413666
+      },
+      {
+        "date": "2026-10-30",
+        "balance_p50": 268200,
+        "balance_low": 69451,
+        "balance_high": 466949
+      },
+      {
+        "date": "2026-10-31",
+        "balance_p50": 291400,
+        "balance_low": 77273,
+        "balance_high": 505527
+      },
+      {
+        "date": "2026-11-01",
+        "balance_p50": 291400,
+        "balance_low": 62634,
+        "balance_high": 520166
+      },
+      {
+        "date": "2026-11-02",
+        "balance_p50": 143400,
+        "balance_low": -99384,
+        "balance_high": 386184,
+        "events": [
+          "ev-rent-1102"
+        ]
+      },
+      {
+        "date": "2026-11-03",
+        "balance_p50": 180400,
+        "balance_low": -75874,
+        "balance_high": 436674
+      },
+      {
+        "date": "2026-11-04",
+        "balance_p50": 217400,
+        "balance_low": -51907,
+        "balance_high": 486707
+      },
+      {
+        "date": "2026-11-05",
+        "balance_p50": -210600,
+        "balance_low": -492537,
+        "balance_high": 71337,
+        "events": [
+          "ev-supplier-1105"
+        ]
+      },
+      {
+        "date": "2026-11-06",
+        "balance_p50": -270100,
+        "balance_low": -564312,
+        "balance_high": 24112,
+        "events": [
+          "ev-loan-1106"
+        ]
+      },
+      {
+        "date": "2026-11-07",
+        "balance_p50": -246900,
+        "balance_low": -553068,
+        "balance_high": 59268
+      },
+      {
+        "date": "2026-11-08",
+        "balance_p50": -246900,
+        "balance_low": -564737,
+        "balance_high": 70937
+      },
+      {
+        "date": "2026-11-09",
+        "balance_p50": 510100,
+        "balance_low": 180855,
+        "balance_high": 839345,
+        "events": [
+          "ev-gorodok-1109"
+        ]
+      },
+      {
+        "date": "2026-11-10",
+        "balance_p50": 379100,
+        "balance_low": 38685,
+        "balance_high": 719515,
+        "events": [
+          "ev-payroll-1110"
+        ]
+      },
+      {
+        "date": "2026-11-11",
+        "balance_p50": 416100,
+        "balance_low": 64733,
+        "balance_high": 767467
+      },
+      {
+        "date": "2026-11-12",
+        "balance_p50": 453100,
+        "balance_low": 90983,
+        "balance_high": 815217
+      },
+      {
+        "date": "2026-11-13",
+        "balance_p50": 490100,
+        "balance_low": 117418,
+        "balance_high": 862782
+      },
+      {
+        "date": "2026-11-14",
+        "balance_p50": 513300,
+        "balance_low": 130228,
+        "balance_high": 896372
+      },
+      {
+        "date": "2026-11-15",
+        "balance_p50": 513300,
+        "balance_low": 119998,
+        "balance_high": 906602
+      },
+      {
+        "date": "2026-11-16",
+        "balance_p50": 810300,
+        "balance_low": 406920,
+        "balance_high": 1213680,
+        "events": [
+          "ev-registry-1116"
+        ]
+      },
+      {
+        "date": "2026-11-17",
+        "balance_p50": 847300,
+        "balance_low": 433984,
+        "balance_high": 1260616
+      },
+      {
+        "date": "2026-11-18",
+        "balance_p50": 764300,
+        "balance_low": 341181,
+        "balance_high": 1187419,
+        "events": [
+          "ev-manual-1118"
+        ]
+      },
+      {
+        "date": "2026-11-19",
+        "balance_p50": 801300,
+        "balance_low": 368504,
+        "balance_high": 1234096
+      },
+      {
+        "date": "2026-11-20",
+        "balance_p50": -61700,
+        "balance_low": -504055,
+        "balance_high": 380655,
+        "events": [
+          "ev-supplier-1120"
+        ]
+      },
+      {
+        "date": "2026-11-21",
+        "balance_p50": -38500,
+        "balance_low": -490301,
+        "balance_high": 413301
+      },
+      {
+        "date": "2026-11-22",
+        "balance_p50": -38500,
+        "balance_low": -499640,
+        "balance_high": 422640
+      }
+    ],
+    "risks": [
+      {
+        "date": "2026-11-06",
+        "shortfall_amount": 270000,
+        "probability": 0.88,
+        "severity": "high",
+        "reason": "5 ноября нужно оплатить поставщику «Агрокомплекс Дон» 465 000 ₽, а 6 ноября — платёж по кредиту 96 500 ₽. Крупная оплата от «Городка» придёт только 9 ноября, поэтому несколько дней денег на счёте не хватит.",
+        "recommendations": [
+          "Попросите «Агрокомплекс Дон» перенести оплату счёта №1182 на 10 ноября — после поступления от «Городка».",
+          "Напомните «Пекарне Лакомке» о просроченном счёте №301 на 210 000 ₽ — этого хватит, чтобы закрыть большую часть нехватки.",
+          "Если перенос невозможен — подключите овердрафт или кредитную линию в Центр-Инвест на 2–3 недели."
+        ]
+      },
+      {
+        "date": "2026-11-20",
+        "shortfall_amount": 62000,
+        "probability": 0.57,
+        "severity": "medium",
+        "reason": "20 ноября запланирована предоплата новогодней закупки 900 000 ₽, а 18 ноября — ремонт холодильной камеры 120 000 ₽. Если клиенты заплатят чуть позже обычного, денег может не хватить.",
+        "recommendations": [
+          "Разбейте предоплату закупки на две части: 20 и 27 ноября.",
+          "Договоритесь с «ХолодТехСервисом» об оплате ремонта после 25 ноября.",
+          "Заранее обсудите с Центр-Инвест сезонный кредит на пополнение оборотных средств."
+        ]
+      }
+    ],
+    "recurring": [
+      {
+        "name": "Зарплата (2-я половина месяца)",
+        "direction": "out",
+        "amount_avg": 405000,
+        "period_days": 30,
+        "next_date": "2026-10-26",
+        "confidence": 0.95
+      },
+      {
+        "name": "Аванс сотрудникам",
+        "direction": "out",
+        "amount_avg": 166000,
+        "period_days": 30,
+        "next_date": "2026-11-10",
+        "confidence": 0.93
+      },
+      {
+        "name": "Аренда склада — ИП Карапетян А.С.",
+        "direction": "out",
+        "amount_avg": 185000,
+        "period_days": 30,
+        "next_date": "2026-11-02",
+        "confidence": 0.98
+      },
+      {
+        "name": "Единый налоговый платёж",
+        "direction": "out",
+        "amount_avg": 161000,
+        "period_days": 30,
+        "next_date": "2026-10-28",
+        "confidence": 0.9
+      },
+      {
+        "name": "Кредит на оборудование — Центр-Инвест",
+        "direction": "out",
+        "amount_avg": 96500,
+        "period_days": 30,
+        "next_date": "2026-11-06",
+        "confidence": 0.99
+      },
+      {
+        "name": "ООО «Кофейня Ромашка» — оплата поставок",
+        "direction": "in",
+        "amount_avg": 138000,
+        "period_days": 19,
+        "next_date": "2026-10-28",
+        "confidence": 0.78
+      },
+      {
+        "name": "Связь и интернет — ПАО «Ростелеком»",
+        "direction": "out",
+        "amount_avg": 6400,
+        "period_days": 30,
+        "next_date": "2026-11-03",
+        "confidence": 0.88
+      },
+      {
+        "name": "Эквайринг — поступления от розницы",
+        "direction": "in",
+        "amount_avg": 58000,
+        "period_days": 1,
+        "next_date": "2026-10-26",
+        "confidence": 0.72
+      }
+    ],
+    "sources_used": [
+      "Банковская выписка: 184 дня операций (апрель–октябрь 2026)",
+      "1С: счета и договоры (6 ожидаемых платежей)",
+      "Налоговый календарь ФНС",
+      "Открытые реестры: госконтракты (zakupki.gov.ru)",
+      "Ручной ввод (1 событие)"
+    ],
+    "warnings": []
+  },
+  "scenario": {
+    "company_id": "demo-yuzhny-vkus",
+    "generated_at": "2026-10-23T18:30:00+03:00",
+    "horizon_days": 30,
+    "as_of": "2026-10-23",
+    "current_balance": 500000,
+    "daily": [
+      {
+        "date": "2026-10-24",
+        "balance_p50": 516240,
+        "balance_low": 446393,
+        "balance_high": 586087
+      },
+      {
+        "date": "2026-10-25",
+        "balance_p50": 516240,
+        "balance_low": 415584,
+        "balance_high": 616896
+      },
+      {
+        "date": "2026-10-26",
+        "balance_p50": 123840,
+        "balance_low": -1201,
+        "balance_high": 248881,
+        "events": [
+          "ev-payroll-1026"
+        ]
+      },
+      {
+        "date": "2026-10-27",
+        "balance_p50": 143440,
+        "balance_low": -2662,
+        "balance_high": 289542
+      },
+      {
+        "date": "2026-10-28",
+        "balance_p50": 93040,
+        "balance_low": -71999,
+        "balance_high": 258079,
+        "events": [
+          "ev-tax-1028",
+          "ev-romashka-1028"
+        ]
+      },
+      {
+        "date": "2026-10-29",
+        "balance_p50": 112640,
+        "balance_low": -69826,
+        "balance_high": 295106
+      },
+      {
+        "date": "2026-10-30",
+        "balance_p50": 132240,
+        "balance_low": -66509,
+        "balance_high": 330989
+      },
+      {
+        "date": "2026-10-31",
+        "balance_p50": 148480,
+        "balance_low": -65647,
+        "balance_high": 362607
+      },
+      {
+        "date": "2026-11-01",
+        "balance_p50": 148480,
+        "balance_low": -80286,
+        "balance_high": 377246
+      },
+      {
+        "date": "2026-11-02",
+        "balance_p50": -16920,
+        "balance_low": -259704,
+        "balance_high": 225864,
+        "events": [
+          "ev-rent-1102"
+        ]
+      },
+      {
+        "date": "2026-11-03",
+        "balance_p50": 2680,
+        "balance_low": -253594,
+        "balance_high": 258954
+      },
+      {
+        "date": "2026-11-04",
+        "balance_p50": 22280,
+        "balance_low": -247027,
+        "balance_high": 291587
+      },
+      {
+        "date": "2026-11-05",
+        "balance_p50": -423120,
+        "balance_low": -705057,
+        "balance_high": -141183,
+        "events": [
+          "ev-supplier-1105"
+        ]
+      },
+      {
+        "date": "2026-11-06",
+        "balance_p50": -500020,
+        "balance_low": -794232,
+        "balance_high": -205808,
+        "events": [
+          "ev-loan-1106"
+        ]
+      },
+      {
+        "date": "2026-11-07",
+        "balance_p50": -483780,
+        "balance_low": -789948,
+        "balance_high": -177612
+      },
+      {
+        "date": "2026-11-08",
+        "balance_p50": -483780,
+        "balance_low": -801617,
+        "balance_high": -165943
+      },
+      {
+        "date": "2026-11-09",
+        "balance_p50": 39820,
+        "balance_low": -289425,
+        "balance_high": 369065,
+        "events": [
+          "ev-gorodok-1109"
+        ]
+      },
+      {
+        "date": "2026-11-10",
+        "balance_p50": -108580,
+        "balance_low": -448995,
+        "balance_high": 231835,
+        "events": [
+          "ev-payroll-1110"
+        ]
+      },
+      {
+        "date": "2026-11-11",
+        "balance_p50": -88980,
+        "balance_low": -440347,
+        "balance_high": 262387
+      },
+      {
+        "date": "2026-11-12",
+        "balance_p50": -69380,
+        "balance_low": -431497,
+        "balance_high": 292737
+      },
+      {
+        "date": "2026-11-13",
+        "balance_p50": -49780,
+        "balance_low": -422462,
+        "balance_high": 322902
+      },
+      {
+        "date": "2026-11-14",
+        "balance_p50": -33540,
+        "balance_low": -416612,
+        "balance_high": 349532
+      },
+      {
+        "date": "2026-11-15",
+        "balance_p50": -33540,
+        "balance_low": -426842,
+        "balance_high": 359762
+      },
+      {
+        "date": "2026-11-16",
+        "balance_p50": 168060,
+        "balance_low": -235320,
+        "balance_high": 571440,
+        "events": [
+          "ev-registry-1116"
+        ]
+      },
+      {
+        "date": "2026-11-17",
+        "balance_p50": 187660,
+        "balance_low": -225656,
+        "balance_high": 600976
+      },
+      {
+        "date": "2026-11-18",
+        "balance_p50": 87260,
+        "balance_low": -335859,
+        "balance_high": 510379,
+        "events": [
+          "ev-manual-1118"
+        ]
+      },
+      {
+        "date": "2026-11-19",
+        "balance_p50": 106860,
+        "balance_low": -325936,
+        "balance_high": 539656
+      },
+      {
+        "date": "2026-11-20",
+        "balance_p50": -773540,
+        "balance_low": -1215895,
+        "balance_high": -331185,
+        "events": [
+          "ev-supplier-1120"
+        ]
+      },
+      {
+        "date": "2026-11-21",
+        "balance_p50": -757300,
+        "balance_low": -1209101,
+        "balance_high": -305499
+      },
+      {
+        "date": "2026-11-22",
+        "balance_p50": -757300,
+        "balance_low": -1218440,
+        "balance_high": -296160
+      }
+    ],
+    "risks": [
+      {
+        "date": "2026-11-20",
+        "shortfall_amount": 774000,
+        "probability": 0.99,
+        "severity": "high",
+        "reason": "20 ноября запланирована предоплата новогодней закупки 900 000 ₽, а 18 ноября — ремонт холодильной камеры 120 000 ₽. Если клиенты заплатят чуть позже обычного, денег может не хватить.",
+        "recommendations": [
+          "Разбейте предоплату закупки на две части: 20 и 27 ноября.",
+          "Договоритесь с «ХолодТехСервисом» об оплате ремонта после 25 ноября.",
+          "Заранее обсудите с Центр-Инвест сезонный кредит на пополнение оборотных средств."
+        ]
+      }
+    ],
+    "recurring": [
+      {
+        "name": "Зарплата (2-я половина месяца)",
+        "direction": "out",
+        "amount_avg": 405000,
+        "period_days": 30,
+        "next_date": "2026-10-26",
+        "confidence": 0.95
+      },
+      {
+        "name": "Аванс сотрудникам",
+        "direction": "out",
+        "amount_avg": 166000,
+        "period_days": 30,
+        "next_date": "2026-11-10",
+        "confidence": 0.93
+      },
+      {
+        "name": "Аренда склада — ИП Карапетян А.С.",
+        "direction": "out",
+        "amount_avg": 185000,
+        "period_days": 30,
+        "next_date": "2026-11-02",
+        "confidence": 0.98
+      },
+      {
+        "name": "Единый налоговый платёж",
+        "direction": "out",
+        "amount_avg": 161000,
+        "period_days": 30,
+        "next_date": "2026-10-28",
+        "confidence": 0.9
+      },
+      {
+        "name": "Кредит на оборудование — Центр-Инвест",
+        "direction": "out",
+        "amount_avg": 96500,
+        "period_days": 30,
+        "next_date": "2026-11-06",
+        "confidence": 0.99
+      },
+      {
+        "name": "ООО «Кофейня Ромашка» — оплата поставок",
+        "direction": "in",
+        "amount_avg": 138000,
+        "period_days": 19,
+        "next_date": "2026-10-28",
+        "confidence": 0.78
+      },
+      {
+        "name": "Связь и интернет — ПАО «Ростелеком»",
+        "direction": "out",
+        "amount_avg": 6400,
+        "period_days": 30,
+        "next_date": "2026-11-03",
+        "confidence": 0.88
+      },
+      {
+        "name": "Эквайринг — поступления от розницы",
+        "direction": "in",
+        "amount_avg": 58000,
+        "period_days": 1,
+        "next_date": "2026-10-26",
+        "confidence": 0.72
+      }
+    ],
+    "sources_used": [
+      "Банковская выписка: 184 дня операций (апрель–октябрь 2026)",
+      "1С: счета и договоры (6 ожидаемых платежей)",
+      "Налоговый календарь ФНС",
+      "Открытые реестры: госконтракты (zakupki.gov.ru)",
+      "Ручной ввод (1 событие)"
+    ],
+    "warnings": []
+  },
+  "delta": {
+    "first_gap_date": "2026-11-02",
+    "max_shortfall": 774000
+  }
+}
