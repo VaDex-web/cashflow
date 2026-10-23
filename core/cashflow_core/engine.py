@@ -115,6 +115,8 @@ class ForecastState:
     res_in: pd.Series
     res_out: pd.Series
     model_name: str
+    raw_in: pd.Series
+    raw_out: pd.Series
     models: dict[str, Any]
     err_in: np.ndarray
     err_out: np.ndarray
@@ -186,14 +188,15 @@ def _winsorize(y: pd.Series) -> pd.Series:
     return y.clip(upper=cap)
 
 
-def _select_model(r_in: pd.Series, r_out: pd.Series, horizon: int, candidates: list[str], seed: int
+def _select_model(r_in: pd.Series, r_out: pd.Series, horizon: int, candidates: list[str], seed: int,
+                  raw_in: pd.Series | None = None, raw_out: pd.Series | None = None
                   ) -> tuple[str, np.ndarray, np.ndarray, dict[str, float]]:
     """Выбрать модель остаточных потоков по ошибке накопленного остатка на прошлых прогнозах."""
     best = None
     scores: dict[str, float] = {}
     for name in candidates:
-        e_in, _ = error_paths(r_in, name, horizon, seed=seed)
-        e_out, _ = error_paths(r_out, name, horizon, seed=seed)
+        e_in, _ = error_paths(r_in, name, horizon, seed=seed, y_true=raw_in)
+        e_out, _ = error_paths(r_out, name, horizon, seed=seed, y_true=raw_out)
         if len(e_in) < 5:
             continue
         cum_err = np.cumsum(e_in - e_out, axis=1)
@@ -248,7 +251,7 @@ def build_state(
         ev, ew = normalize_events(events, today + timedelta(days=1))
         return ForecastState(cid, tx, to_daily(tx), today, 0.0, [], [], TaxModel(), None,
                              pd.Series(dtype=float, index=empty_idx), pd.Series(dtype=float, index=empty_idx),
-                             "mean", {}, np.zeros((0, horizon)), np.zeros((0, horizon)), 2.0, ev, "minimal",
+                             "mean", pd.Series(dtype=float, index=empty_idx), pd.Series(dtype=float, index=empty_idx), {}, np.zeros((0, horizon)), np.zeros((0, horizon)), 2.0, ev, "minimal",
                              warnings + ew, {"horizon": horizon, "n_sims": n_sims, "seed": seed, "threshold": threshold})
 
     cz = categorizer or fit_categorizer(tx, seed=seed)
@@ -292,10 +295,10 @@ def build_state(
         else:
             cands = [model if model in MODEL_FACTORIES else "ets"]
         try:
-            model_name, e_in, e_out, scores = _select_model(r_in_w, r_out_w, err_h, cands, seed)
+            model_name, e_in, e_out, scores = _select_model(r_in_w, r_out_w, err_h, cands, seed, r_in, r_out)
         except Exception as exc:  # noqa: BLE001 — модель не должна ронять прогноз
             log.warning("model selection failed: %s", type(exc).__name__)
-            model_name, e_in, e_out, scores = _select_model(r_in_w, r_out_w, err_h, ["ets"], seed)
+            model_name, e_in, e_out, scores = _select_model(r_in_w, r_out_w, err_h, ["ets"], seed, r_in, r_out)
             warnings.append("Сложная модель не обучилась на этих данных — использована сезонная.")
         scale = 1.0 if mode == "full" else 1.5
         if len(e_in) < 8:
@@ -329,6 +332,7 @@ def build_state(
     st = ForecastState(
         company_id=cid, df=tx, daily=daily, as_of=as_of_d, start_balance=start_balance, patterns=patterns,
         inactive=inactive, tax_model=tm, categorizer=cz, res_in=r_in_w, res_out=r_out_w, model_name=model_name,
+        raw_in=r_in, raw_out=r_out,
         models=models, err_in=e_in, err_out=e_out, err_scale=scale, events=ev, mode=mode, warnings=warnings,
         settings={"horizon": horizon, "n_sims": int(n_sims), "seed": int(seed), "threshold": float(threshold),
                   "model": model},
@@ -491,8 +495,18 @@ def _daily_points(plan: Plan, sim: SimResult) -> list[dict[str, Any]]:
     from .schema import INTERVAL_HIGH_Q, INTERVAL_LOW_Q
 
     q = np.quantile(sim.balances, [INTERVAL_LOW_Q, 0.5, INTERVAL_HIGH_Q], axis=0)
-    return [{"date": d.isoformat(), "balance_p50": round(float(q[1, k]), 2), "balance_low": round(float(q[0, k]), 2),
-             "balance_high": round(float(q[2, k]), 2)} for k, d in enumerate(plan.dates)]
+    ev_by_day: dict[int, list[str]] = {}
+    for it in plan.items:
+        if it.kind == "event" and it.ref != "scenario":
+            ev_by_day.setdefault(it.day + it.day_shift, []).append(it.ref)
+    out = []
+    for k, d in enumerate(plan.dates):
+        p = {"date": d.isoformat(), "balance_p50": round(float(q[1, k]), 2), "balance_low": round(float(q[0, k]), 2),
+             "balance_high": round(float(q[2, k]), 2)}
+        if k in ev_by_day:
+            p["events"] = ev_by_day[k]  # необязательное поле контракта: id событий на дату
+        out.append(p)
+    return out
 
 
 def make_result(state: ForecastState, plan: Plan, sim: SimResult, extra_warnings: list[str] | None = None) -> dict[str, Any]:
@@ -506,6 +520,8 @@ def make_result(state: ForecastState, plan: Plan, sim: SimResult, extra_warnings
         "company_id": state.company_id,
         "generated_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
         "horizon_days": plan.horizon,
+        "as_of": state.as_of.isoformat(),
+        "current_balance": round(float(state.start_balance), 2),
         "daily": _daily_points(plan, sim),
         "risks": risks,
         "recurring": [p.to_contract(state.as_of) for p in state.patterns],
@@ -535,7 +551,7 @@ def ensure_error_horizon(state: ForecastState, horizon: int) -> None:
     if len(state.err_in) and state.err_in.shape[1] >= horizon:
         return
     seed = state.settings["seed"]
-    state.err_in, _ = error_paths(state.res_in, state.model_name, horizon, seed=seed)
-    state.err_out, _ = error_paths(state.res_out, state.model_name, horizon, seed=seed)
+    state.err_in, _ = error_paths(state.res_in, state.model_name, horizon, seed=seed, y_true=state.raw_in)
+    state.err_out, _ = error_paths(state.res_out, state.model_name, horizon, seed=seed, y_true=state.raw_out)
     if len(state.err_in) < 8:
         state.err_scale = max(state.err_scale, 1.5)

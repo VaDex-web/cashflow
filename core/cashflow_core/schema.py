@@ -69,11 +69,12 @@ class Event(TypedDict, total=False):
     note: str
 
 
-class DailyPoint(TypedDict):
+class DailyPoint(TypedDict, total=False):
     date: str
     balance_p50: float
     balance_low: float
     balance_high: float
+    events: list[str]          # необязательное: id событий на эту дату
 
 
 class Risk(TypedDict):
@@ -98,6 +99,8 @@ class ForecastResult(TypedDict):
     company_id: str
     generated_at: str
     horizon_days: int
+    as_of: str                 # необязательное: дата последней операции
+    current_balance: float     # необязательное: фактический остаток на as_of
     daily: list[DailyPoint]
     risks: list[Risk]
     recurring: list[Recurring]

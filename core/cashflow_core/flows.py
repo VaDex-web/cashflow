@@ -213,7 +213,8 @@ MODEL_FACTORIES = {
 
 
 def error_paths(y: pd.Series, model_name: str, horizon: int, *, n_origins: int = 40, step: int = 7,
-                seed: int = 42, refit_every: int = 182) -> tuple[np.ndarray, list[pd.Timestamp]]:
+                seed: int = 42, refit_every: int = 182, y_true: pd.Series | None = None
+                ) -> tuple[np.ndarray, list[pd.Timestamp]]:
     """Ошибки прогнозов с прошлых дат отсечения: матрица (n_origins × horizon) = факт − прогноз.
 
     Дата отсечения сдвигается с шагом ``step`` дней назад от «последней возможной»
@@ -234,7 +235,7 @@ def error_paths(y: pd.Series, model_name: str, horizon: int, *, n_origins: int =
             model = MODEL_FACTORIES[model_name](seed).fit(ctx)
             fitted_at = o
         pred = model.forecast(ctx, horizon)
-        fact = y.values[o + 1: o + 1 + horizon]
+        fact = (y_true if y_true is not None else y).values[o + 1: o + 1 + horizon]
         paths.append(fact - pred)
         used.append(y.index[o])
     if not paths:

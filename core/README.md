@@ -17,9 +17,10 @@ python -m cashflow_core.demo data/raw/statements/C001.csv \
        --scenario '{"type":"client_delay","params":{"counterparty_or_event_id":"Дистрибьютор-489","weeks":3}}'
 python -m cashflow_core.demo data/raw/statements/C001.csv --json /tmp/forecast.json
 
-python -m pytest core/tests                 # тесты
+python -m pytest core/tests                 # 37 тестов (~1 мин)
 python core/tests/run_tests.py              # то же без pytest (мини-раннер)
-python -m cashflow_core.report --companies 30   # бэктест → core/reports/metrics.{md,json,png}
+python -m cashflow_core.report --companies 30 --workers 4   # бэктест → core/reports/ (~20 мин)
+python -m cashflow_core.report --rebuild    # пересобрать metrics.json/md/png из metrics_detail.json
 ```
 
 ## API (контракт)
@@ -47,11 +48,13 @@ state, res = update_forecast(state, new_rows)                     # новые �
 
 ### Формат ответа
 
-`ForecastResult` строго по контракту + поле `warnings` (список строк):
+`ForecastResult` строго по контракту + необязательные поля контракта `warnings`, `as_of`,
+`current_balance`, `daily[].events` (id событий на дату):
 
 ```json
 {
   "company_id": "C001", "generated_at": "2026-10-23T17:30:00+00:00", "horizon_days": 30,
+  "as_of": "2026-09-29", "current_balance": 1723624.49,
   "daily": [{"date": "2026-09-30", "balance_p50": 1861000.0, "balance_low": 1527000.0, "balance_high": 2130000.0}],
   "risks": [{"date": "2026-10-28", "shortfall_amount": 821000.0, "probability": 0.28, "severity": "medium",
              "reason": "28 октября нужно заплатить квартальный налог (ЕНП) 505 000 ₽ и ...",
@@ -96,6 +99,22 @@ state, res = update_forecast(state, new_rows)                     # новые �
    Пополнения «собственными средствами» и займы учредителя в прогноз **не** закладываются:
    прогноз показывает, сколько не хватит, если ничего не делать.
 7. **Риски** (`risk.py`), **сценарии** (`scenarios.py`) — из тех же симуляций с общими случайными числами.
+
+## Инкрементальное обновление
+
+`update_forecast(state, new_rows)`: новые строки (список dict / DataFrame / CSV) чистятся тем же
+парсером и размечаются уже обученным категоризатором; дубли отбрасываются; остаток сдвигается;
+операции сопоставляются с ожидаемыми регулярными платежами и событиями (`paid`), неоплаченные
+в срок события получают `overdue` и попадают в `warnings`; модели потоков не переобучаются (берут
+продлённую историю как контекст). Полная перестройка — раз в 30 дней новых данных.
+На C001: 26 новых операций — 0.13 с против ~4–8 с полного построения. `state.last_update` — что изменилось.
+
+## Качество (бэктест)
+
+`core/reports/metrics.md` — таблица для слайда и методика, `metrics.json` — формат раздела 5 контракта,
+`metrics_detail.json` — все метрики, `errors.png` — ошибка по дням горизонта.
+Rolling origin: на каждой отсечке модели учатся только на прошлом; сравниваются наивная,
+сезонная (ETS-подобная) и гибрид; интервалы у всех строятся одинаково (по прошлым ошибкам).
 
 ## Граничные случаи
 

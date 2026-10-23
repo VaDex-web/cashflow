@@ -226,14 +226,30 @@ def _read_any(src: str | Path | BinaryIO | bytes) -> pd.DataFrame:
         except UnicodeDecodeError:
             continue
     assert text is not None
-    sample = text[:20000]
-    try:
-        sep = csv.Sniffer().sniff(sample, delimiters=",;\t|").delimiter
-    except csv.Error:
-        counts = {d: sample.count(d) for d in (";", ",", "\t", "|")}
-        sep = max(counts, key=counts.get)  # type: ignore[arg-type]
+    sep, start = _detect_layout(text)
+    text = "\n".join(text.splitlines()[start:])
     return pd.read_csv(io.StringIO(text), sep=sep, dtype=str, header=None, keep_default_na=False,
                        skip_blank_lines=True, engine="python", on_bad_lines="skip")
+
+
+def _detect_layout(text: str) -> tuple[str, int]:
+    """Выбрать разделитель и первую строку таблицы (пропуская «шапку» выгрузки).
+
+    Разделитель — тот, при котором больше всего строк имеют одинаковое число полей (> 1);
+    таблица начинается с первой строки этой ширины.
+    """
+    lines = text.splitlines()[:300]
+    best = (",", 0, -1)
+    for sep in (";", ",", "\t", "|"):
+        widths = [len(r) for r in csv.reader(lines, delimiter=sep)] if lines else []
+        if not widths:
+            continue
+        vals, cnts = np.unique([w for w in widths if w > 1] or [1], return_counts=True)
+        mode, freq = int(vals[cnts.argmax()]), int(cnts.max())
+        if mode > 1 and freq > best[2]:
+            start = next((i for i, w in enumerate(widths) if w == mode), 0)
+            best = (sep, start, freq)
+    return best[0], best[1]
 
 
 def _find_header(raw: pd.DataFrame) -> pd.DataFrame:
@@ -293,10 +309,8 @@ def load_statement(
     quality: dict[str, Any] = {}
 
     if isinstance(path_or_df, pd.DataFrame):
-        src = path_or_df.copy()
-        if set(STANDARD_COLUMNS[1:4]).issubset(src.columns) and "signed_amount" in src.columns:
-            # уже нормализован — пропускаем через ту же очистку, это идемпотентно
-            pass
+        src = path_or_df.copy().reset_index(drop=True)  # индекс может быть неуникальным
+        src.attrs = {}
         mapping = _match_columns(src.columns)
         if "date" not in mapping:
             src = _find_header(pd.DataFrame([list(src.columns)] + src.astype(str).values.tolist()))
@@ -536,8 +550,14 @@ def to_daily(df: pd.DataFrame) -> pd.DataFrame:
     else:
         anchor = float(df.attrs.get("opening_balance", 0.0) or 0.0)
     daily["balance"] = anchor + cum
-    rep_delta = bal_rep.diff()
-    tol = np.maximum(1.0, 1e-4 * bal_rep.abs().fillna(0))
-    known = bal_rep.notna() & bal_rep.shift(1).notna()
-    daily["mismatch"] = (known & ((rep_delta - daily["net"]).abs() > tol)).fillna(False).astype(bool)
+    # сверка: изменение остатка между соседними ИЗВЕСТНЫМИ днями = сумма операций между ними
+    known = bal_rep.dropna()
+    mismatch = pd.Series(False, index=idx)
+    if len(known) > 1:
+        d_rep = known.diff()
+        d_ops = cum.reindex(known.index).diff()
+        tol = np.maximum(1.0, 1e-4 * known.abs())
+        bad = ((d_rep - d_ops).abs() > tol) & d_rep.notna()
+        mismatch.loc[bad[bad].index] = True
+    daily["mismatch"] = mismatch.astype(bool)
     return daily[cols]

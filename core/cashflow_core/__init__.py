@@ -56,7 +56,7 @@ def _safe_result(company_id: Any, horizon: int, exc: Exception) -> dict[str, Any
     get_logger(__name__).error("forecast failed: %s", type(exc).__name__)
     return {"company_id": str(company_id or "unknown"),
             "generated_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
-            "horizon_days": int(horizon or 30), "daily": [], "risks": [], "recurring": [], "sources_used": ["bank"],
+            "horizon_days": int(horizon or 30), "as_of": None, "current_balance": None, "daily": [], "risks": [], "recurring": [], "sources_used": ["bank"],
             "warnings": [f"Прогноз не построен: внутренняя ошибка ({type(exc).__name__}). Проверьте формат выписки."]}
 
 
