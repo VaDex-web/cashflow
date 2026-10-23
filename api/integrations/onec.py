@@ -60,9 +60,9 @@ class OneC(Integration):
 
     def message(self, company: CompanyContext, events: list[SourceEvent]) -> str:
         if self.load(company) is None:
-            return "Выгрузка из 1С не найдена: загрузите JSON через POST /api/companies/{id}/integrations/1c/upload"
+            return "Выгрузка из 1С ещё не загружена — загрузите файл выгрузки, и счета и договоры попадут в прогноз."
         od = [e for e in events if e.status == "overdue" and e.direction == "in"]
-        msg = f"Документов: {len(events)}."
+        msg = f"Получено из 1С: {len(events)} платежей по счетам, договорам и ведомостям."
         if od:
             msg += f" Просрочено оплат от клиентов: {len(od)} на {rub(sum(e.amount for e in od))}."
         return msg

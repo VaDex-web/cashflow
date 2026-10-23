@@ -137,11 +137,12 @@ def test_onec_bank_registry_fixtures():
 
 
 def test_bank_mock_from_history_without_file():
-    c = ctx_for("S01")
+    c = ctx_for("S03")
     c.fixtures_dir = None
     ev = Bank().fetch(c)
-    assert any(e.type == "payroll" for e in ev)
-    assert all(e.date > c.as_of for e in ev)
+    loans = [e for e in ev if e.type == "loan"]
+    assert loans and all(e.date > c.as_of and e.amount == 245000 for e in loans if "КД-2024/0187" in e.note)
+    assert not any(e.type == "payroll" for e in ev)          # без файла банка ведомости не придумываются
 
 
 # --------------------------------------------------------------------------- ручной ввод

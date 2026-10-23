@@ -6,8 +6,9 @@
      "ЗарплатныйПроект": {"Ведомости": [{"Дата", "Вид", "Сумма", "Сотрудников"}]},
      "ПлатежныеПоручения": [{"Номер", "Дата", "Сумма", "Получатель": {"Наименование", "ИНН"}, "Назначение", "Статус"}]}
 
-Если файла нет, мок «знает» то же, что банк видит у себя по счёту клиента: ежемесячные платежи по
-кредитам и лизингу и выплаты по зарплатному проекту — из истории операций (дата и сумма последнего платежа).
+Если файла нет, мок «знает» то же, что банк видит у себя по счёту клиента: график ежемесячных платежей по
+кредитам и лизингу (по последним платежам). Ведомости зарплатного проекта и платёжные поручения без файла не
+придумываются — по истории их суммы не точнее оценки ядра (проверено бэктестом, см. reports/sources_effect.md).
 """
 from __future__ import annotations
 
@@ -20,10 +21,9 @@ import numpy as np
 import pandas as pd
 
 from .base import (CompanyContext, Integration, SourceEvent, as_date, counterparty_of, event_id, next_business_day, pick,
-                   prev_business_day, to_float)
+                   to_float)
 
 _LOAN_RX = re.compile(r"(?i)погашени\w* (?:основного долга|кредит)|по кредитному договору|кредитн\w+ лини|лизингов")
-_PAY_RX = re.compile(r"(?i)заработн|\(аванс\)|аванс по заработ")
 _DOGOVOR_RX = re.compile(r"(?i)договор\w*\s*№\s*([\w/.-]+)")
 
 
@@ -113,28 +113,10 @@ class Bank(Integration):
                                            counterparty=str(last.counterparty_name) or None,
                                            counterparty_inn=str(last.counterparty_inn or ""),
                                            note=f"Платёж по договору №{key} — график банка (по последним платежам)"))
-        pay = recent[recent["purpose"].str.contains(_PAY_RX)]
-        if len(pay) >= 2:
-            kinds = {"аванс": pay[pay["purpose"].str.contains(r"(?i)аванс")],
-                     "зарплата": pay[~pay["purpose"].str.contains(r"(?i)аванс")]}
-            for kind, rows in kinds.items():
-                if len(rows) < 2:
-                    continue
-                by_day = rows.groupby("date")["amount"].sum()
-                day = int(np.median([x.day for x in by_day.index]))
-                amount = float(by_day.iloc[-1])
-                for k in range(0, 3):
-                    y, m = divmod(as_of.year * 12 + as_of.month - 1 + k, 12)
-                    due = prev_business_day(date(y, m + 1, min(day, 28)))
-                    if as_of < due <= end:
-                        out.append(SourceEvent(id=event_id("bank-zp", due, kind), type="payroll", direction="out",
-                                               amount=round(amount, 2), date=due, source="bank", status="expected",
-                                               counterparty="Сотрудники",
-                                               note=f"Зарплатный проект: {kind} (сумма последнего реестра)"))
         return out
 
     def message(self, company: CompanyContext, events: list[SourceEvent]) -> str:
-        src = "данные банка" if company.document("bank") else "мок по истории счёта"
+        src = "Данные банка" if company.document("bank") else "По истории счёта"
         by = defaultdict(int)
         for e in events:
             by[e.type] += 1

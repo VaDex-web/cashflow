@@ -23,7 +23,8 @@ from sqlalchemy.orm import Session
 from . import plan_fact as pf
 from .config import get_settings
 from .core_adapter import events_for_core, get_core, registry_delay
-from .db import (Company, CounterpartyCheck, Document, EventRow, ForecastStateRow, IntegrationRun, Transaction, utcnow)
+from .db import (Company, CounterpartyCheck, Document, EventRow, ForecastStateRow, IntegrationRun, Transaction, User,
+                 utcnow)
 from .integrations import CompanyContext, SourceEvent, all_integrations
 from .schemas import Event, EventCreate, EventUpdate
 from .statements import (StatementError, check_header, companies_in_file, frame_from_core, normalize_row,
@@ -144,26 +145,66 @@ def create_company(session: Session, raw: bytes, filename: str, user: str, compa
     session.add(c)
     session.flush()
     n = _store_rows(session, cid, rows, 0)
+    _user(session, user).company_id = cid        # один пользователь = одна компания: новая выписка — его компания
     session.commit()
     log.info("company uploaded: %s rows=%d", cid, n)
     return c, n, warnings
 
 
-def list_companies(session: Session, user: str) -> list[dict[str, Any]]:
+def _company_info(session: Session, c: Company) -> dict[str, Any]:
+    stats = session.execute(select(func.min(Transaction.date), func.max(Transaction.date), func.count())
+                            .where(Transaction.company_id == c.id)).one()
+    return {"company_id": c.id, "company_name": c.name, "legal_form": c.legal_form, "industry": c.industry,
+            "first_operation_date": stats[0].isoformat() if stats[0] else None,
+            "last_operation_date": stats[1].isoformat() if stats[1] else None, "operations_count": int(stats[2])}
+
+
+def _user(session: Session, username: str) -> User:
+    u = session.scalar(select(User).where(User.username == username))
+    if u is None:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Пользователь не найден — войдите заново")
+    return u
+
+
+def list_companies(session: Session, user: str, demo: bool = False) -> list[dict[str, Any]]:
+    """Один пользователь = одна компания. Список компаний датасета и демо — только в демо-режиме (``demo=true``)."""
     out = []
-    for r in known_companies():
-        out.append({"company_id": r["company_id"], "company_name": r.get("company_name", ""), "legal_form": r.get("legal_form", ""),
-                    "industry": r.get("industry", ""), "first_operation_date": r.get("first_operation_date") or None,
-                    "last_operation_date": r.get("last_operation_date") or None,
-                    "operations_count": int(r.get("operations_count") or 0)})
-    own = session.scalars(select(Company).where(Company.owner == user).order_by(Company.created_at.desc())).all()
-    for c in own:
-        stats = session.execute(select(func.min(Transaction.date), func.max(Transaction.date), func.count())
-                                .where(Transaction.company_id == c.id)).one()
-        out.append({"company_id": c.id, "company_name": c.name, "legal_form": c.legal_form, "industry": c.industry,
-                    "first_operation_date": stats[0].isoformat() if stats[0] else None,
-                    "last_operation_date": stats[1].isoformat() if stats[1] else None, "operations_count": int(stats[2])})
+    u = _user(session, user)
+    if u.company_id:
+        try:
+            out.append(_company_info(session, get_company(session, u.company_id, user)))
+        except HTTPException:
+            pass
+    if demo:
+        mine = {x["company_id"] for x in out}
+        for r in known_companies():
+            if r["company_id"] in mine:
+                continue
+            out.append({"company_id": r["company_id"], "company_name": r.get("company_name", ""),
+                        "legal_form": r.get("legal_form", ""), "industry": r.get("industry", ""),
+                        "first_operation_date": r.get("first_operation_date") or None,
+                        "last_operation_date": r.get("last_operation_date") or None,
+                        "operations_count": int(r.get("operations_count") or 0)})
     return out
+
+
+def me(session: Session, user: str) -> dict[str, Any]:
+    u = _user(session, user)
+    name = None
+    if u.company_id:
+        c = session.get(Company, u.company_id)
+        meta = None if c else _known(u.company_id)
+        name = c.name if c else (meta or {}).get("company_name")
+    return {"username": u.username, "company_id": u.company_id, "company_name": name}
+
+
+def set_my_company(session: Session, user: str, cid: str) -> dict[str, Any]:
+    """Демо-переключатель: сделать компанию из датасета (или свою загруженную) «моей»."""
+    get_company(session, cid, user)
+    u = _user(session, user)
+    u.company_id = cid
+    session.commit()
+    return me(session, user)
 
 
 def company_df(session: Session, company: Company) -> pd.DataFrame:
@@ -292,6 +333,66 @@ def context(session: Session, company: Company, df: pd.DataFrame | None = None) 
                           core=get_core())
 
 
+# --------------------------------------------------------------------------- настройки владельца
+TAX_REGIMES = ("usn_income", "usn_income_expense", "osno", "eshn")
+
+
+def default_cushion(df: pd.DataFrame) -> float:
+    """Комфортный минимум по умолчанию — расходы примерно за 7 дней (средние за последние 90 дней,
+    без переводов между своими счетами)."""
+    if df is None or not len(df):
+        return 0.0
+    d = df[(df["direction"] == "out") & ~df["purpose"].astype(str).str.contains("собственн", case=False, regex=False)]
+    if not len(d):
+        return 0.0
+    dates = pd.to_datetime(df["date"])
+    end = dates.max()
+    start = max(dates.min(), end - pd.Timedelta(days=89))
+    days = max(1, (end - start).days + 1)
+    recent = d[pd.to_datetime(d["date"]) >= start]
+    return float(round(recent["amount"].sum() / days * 7, -3))
+
+
+def cushion_of(session: Session, company: Company, df: pd.DataFrame | None = None) -> tuple[float, float, bool]:
+    """(действующий порог, порог по умолчанию, задан ли владельцем)."""
+    st = company.settings or {}
+    custom = st.get("safety_cushion")
+    default = default_cushion(company_df(session, company) if df is None else df)
+    if custom is not None:
+        return float(custom), default, True
+    return default, default, False
+
+
+def company_settings(session: Session, company: Company) -> dict[str, Any]:
+    eff, default, custom = cushion_of(session, company)
+    regime = (company.settings or {}).get("tax_regime")
+    est = None
+    try:
+        from .integrations import TaxCalendar
+
+        est = TaxCalendar().regime(context(session, company))
+    except Exception:  # noqa: BLE001
+        est = None
+    return {"safety_cushion": eff, "safety_cushion_default": default, "safety_cushion_custom": custom,
+            "tax_regime": regime, "tax_regime_estimated": est}
+
+
+def update_settings(session: Session, company: Company, data: dict[str, Any]) -> dict[str, Any]:
+    st = dict(company.settings or {})
+    if "safety_cushion" in data:
+        v = data["safety_cushion"]
+        st["safety_cushion"] = None if v is None else float(v)
+    if "tax_regime" in data:
+        v = data["tax_regime"]
+        if v is not None and v not in TAX_REGIMES:
+            raise HTTPException(422, "Налоговый режим: usn_income (УСН 6%), usn_income_expense (УСН 15%), osno (ОСНО) или eshn (ЕСХН)")
+        st["tax_regime"] = v
+    company.settings = st
+    session.commit()
+    invalidate(company.id)
+    return company_settings(session, company)
+
+
 # --------------------------------------------------------------------------- состояние прогноза
 def _event_dicts(rows: list[EventRow]) -> list[dict[str, Any]]:
     return [{"id": r.id, "type": r.type, "direction": r.direction, "amount": r.amount, "date": r.date.isoformat(),
@@ -299,8 +400,9 @@ def _event_dicts(rows: list[EventRow]) -> list[dict[str, Any]]:
              "counterparty_inn": r.counterparty_inn} for r in rows]
 
 
-def _key(company: Company, events: list[dict[str, Any]], checks: dict[str, Any], horizon: int) -> str:
-    blob = json.dumps([events, checks, horizon, get_settings().registry_delay_days], sort_keys=True, ensure_ascii=False, default=str)
+def _key(company: Company, events: list[dict[str, Any]], checks: dict[str, Any], horizon: int, cushion: float = 0.0) -> str:
+    blob = json.dumps([events, checks, horizon, get_settings().registry_delay_days, round(cushion, 2)], sort_keys=True,
+                      ensure_ascii=False, default=str)
     return f"{get_core().name}:{company.tx_version}:{hashlib.sha1(blob.encode()).hexdigest()[:16]}"
 
 
@@ -321,7 +423,8 @@ def get_state(session: Session, company: Company, horizon: int = 30) -> tuple[An
     checks = checks_map(session, company)
     ev = _event_dicts(rows)
     H = _state_horizon(max(horizon, 30))
-    key = _key(company, ev, checks, H)
+    cushion = cushion_of(session, company)[0]
+    key = _key(company, ev, checks, H, cushion)
     core_events = events_for_core(ev, checks)
     notes: list[str] = []
     with _locks[company.id]:
@@ -340,7 +443,7 @@ def get_state(session: Session, company: Company, horizon: int = 30) -> tuple[An
         if item and item[0].split(":")[-2] == str(company.tx_version) and not isinstance(item[1], dict):
             base = item[1]
         df = company_df(session, company) if base is None else pd.DataFrame()
-        state = core.build(df, core_events, H, company.id, base_state=base)
+        state = core.build(df, core_events, H, company.id, base_state=base, threshold=cushion)
         _cache[company.id] = (key, state)
         _save_state(session, company, key, state)
         return state, notes
@@ -389,12 +492,21 @@ def forecast(session: Session, company: Company, horizon: int = 30) -> dict[str,
     horizon = max(7, min(int(horizon or 30), 365))
     state, notes = get_state(session, company, horizon)
     adj, adj_notes = _registry_adjustment(session, company)
-    res = _finish(get_core().forecast(state, horizon, adj), company, notes + adj_notes + _api_notes(session, company))
+    res = _finish(get_core().forecast(state, horizon, adj), company,
+                  notes + adj_notes + _cushion_note(session, company) + _api_notes(session, company))
     row = session.get(ForecastStateRow, company.id)
     if row is not None and horizon == 30:
         row.result = {"risks": res.get("risks", []), "generated_at": res.get("generated_at")}
         session.commit()
     return res
+
+
+def _cushion_note(session: Session, company: Company) -> list[str]:
+    eff, default, custom = cushion_of(session, company)
+    if eff <= 0:
+        return []
+    how = "вы задали сами" if custom else "по умолчанию — расходы примерно за 7 дней"
+    return [f"Риск считаем от вашего комфортного минимума на счёте — {rub(eff)} ({how}); изменить можно в настройках."]
 
 
 def _registry_adjustment(session: Session, company: Company) -> tuple[dict[str, Any] | None, list[str]]:
@@ -472,7 +584,7 @@ def add_transactions(session: Session, company: Company, rows_in: list[dict[str,
         if e.get("id") in status_by_id:
             e["status"] = status_by_id[e["id"]]
     ev = _event_dicts(event_rows(session, company))
-    key = _key(company, ev, checks_map(session, company), _state_horizon(30))
+    key = _key(company, ev, checks_map(session, company), _state_horizon(30), cushion_of(session, company)[0])
     _cache[company.id] = (key, new_state)
     _save_state(session, company, key, new_state)
     extra = [f"Принято операций: {len(rows)}" + (f", с ошибками: {len(errors)} ({'; '.join(errors[:3])})" if errors else "")]

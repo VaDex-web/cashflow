@@ -117,6 +117,8 @@ def part_a() -> list[dict[str, Any]]:
                 t0 = time.time()
                 up = c.post("/api/companies", headers=h, files={"file": (f"{cid}.csv", raw, "text/csv")}).json()
                 comp = up["company_id"]
+                # разрыв для метрик — «денег меньше нуля», поэтому комфортный минимум владельца здесь 0
+                c.put(f"/api/companies/{comp}/settings", headers=h, json={"safety_cushion": 0})
                 for s in srcs:
                     c.post(f"/api/companies/{comp}/integrations/{s}/sync", headers=h)
                 f = c.get(f"/api/companies/{comp}/forecast?horizon={HORIZON}", headers=h).json()
@@ -200,11 +202,13 @@ def _one_company(args: tuple[str, str, int]) -> list[dict[str, Any]]:
 def part_b(n: int, workers: int, n_sims: int) -> list[dict[str, Any]]:
     import csv
 
+    from .split import split
+
     raw_dir = ROOT / "data" / "raw"
+    holdout = set(split()["holdout"])          # только отложенные компании: параметры подбирались на dev
     rows = list(csv.DictReader((raw_dir / "companies.csv").open(encoding="utf-8-sig"), delimiter=";"))
-    rows = [r for r in rows if (date.fromisoformat(r["last_operation_date"]) - date.fromisoformat(r["first_operation_date"])).days > 300]
-    rnd = random.Random(42)
-    rnd.shuffle(rows)
+    rows = [r for r in rows if r["company_id"] in holdout
+            and (date.fromisoformat(r["last_operation_date"]) - date.fromisoformat(r["first_operation_date"])).days > 300]
     pick = rows[:n]
     tasks = [(str(raw_dir / "statements" / f"{r['company_id']}.csv"), r["company_id"], n_sims) for r in pick]
     out: list[dict[str, Any]] = []
@@ -231,18 +235,34 @@ def _agg(results: list[dict[str, Any]], configs: list[str]) -> list[dict[str, An
         gaps = part[part["true_gap"].notna()]
         nogap = part[part["true_gap"].isna()]
         pred = part[part["pred_gap"].notna()]
-        better = float((part.loc[common, "mae"] < base.loc[common, "mae"] - 1).mean()) if len(common) else 0.0
+        rel = (part.loc[common, "mae"] / base.loc[common, "mae"].clip(lower=1) - 1) if len(common) else pd.Series(dtype=float)
+        changed = rel[rel.abs() > 0.005]
+        better = float((changed < 0).mean()) if len(changed) else 0.0
         out.append({
             "config": cfg, "title": TITLES.get(cfg, cfg), "companies": int(len(part)),
             "mae_median": float(part["mae"].median()), "mape_median": float(part["mape"].median()),
             "mae_change_vs_base": float((part.loc[common, "mae"] / base.loc[common, "mae"].clip(lower=1) - 1).median()) if len(common) else 0.0,
-            "share_better": better, "coverage_80": float(part["coverage_80"].mean()),
+            "share_better": better, "n_better": int((changed < 0).sum()), "n_worse": int((changed > 0).sum()),
+            "n_same": int(len(rel) - len(changed)),
+            "change_if_changed": float(changed.median()) if len(changed) else 0.0,
+            "coverage_80": float(part["coverage_80"].mean()),
             "gap_cases": int(len(gaps)), "gap_recall": float(gaps["detected"].mean()) if len(gaps) else None,
             "gap_precision": float(pred["true_gap"].notna().mean()) if len(pred) else None,
             "false_alarms": int(nogap["false_alarm"].sum()) if len(nogap) else 0,
             "prob_at_gap_mean": float(gaps["prob_at_true_gap"].mean()) if len(gaps) else None,
         })
     return out
+
+
+def summary(data: dict[str, Any]) -> dict[str, Any]:
+    """Сводка для GET /api/metrics/sources (раздел «Как это работает»)."""
+    a, b = data.get("part_a", []), data.get("part_b", [])
+    return {
+        "synthetic": _agg(a, ["base", "tax_calendar", "bank", "1c", "registry", "contracts", "1c+registry", "all"]) if a else [],
+        "showcase": [r for r in a if r.get("company") == "S02"],
+        "real_holdout": _agg(b, ["base", "tax_calendar", "bank", "tax+bank", "1c_sim", "all_sim"]) if b else [],
+        "real_companies": sorted({r["company"] for r in b}),
+    }
 
 
 def _fmt_rub(x: float) -> str:
@@ -298,26 +318,37 @@ def write_report(a: list[dict[str, Any]], b: list[dict[str, Any]]) -> None:
                 lines += ["", f"Медианная ошибка оценки ЕНП — **{np.median(errs):.0%}**. Там, где налоговый календарь ухудшает MAE "
                               "(S01, S05), сама оценка налога точная, но базовый прогноз ядра уже занижен (в истории — выплаты "
                               "дивидендов и выводы собственных средств, которые модель размазывает по дням)."]
-        lines += ["", "Вклад каждого источника по отдельности (медиана по 5 компаниям):", "",
-                  "| источники | медиана MAE, ₽ | изменение MAE к «только выписка» | компаний, где точнее | покрытие | разрывы найдены |",
-                  "|---|---:|---:|---:|---:|---:|"]
+        lines += ["", "Вклад каждого источника по отдельности (5 компаний):", "",
+                  "| источники | медиана MAE, ₽ | лучше / хуже / без изменений | изменение MAE там, где изменилось | покрытие | разрывы найдены |",
+                  "|---|---:|:---:|---:|---:|---:|"]
         for g in _agg(a, ["base", "tax_calendar", "bank", "1c", "registry", "contracts", "1c+registry", "all"]):
-            lines.append(f"| {g['title']} | {_fmt_rub(g['mae_median'])} | {_pct(g['mae_change_vs_base'], True)} | {g['share_better']:.0%} | "
-                         f"{g['coverage_80']:.0%} | {'—' if g['gap_recall'] is None else _pct(g['gap_recall'])} из {g['gap_cases']} |")
+            lines.append(f"| {g['title']} | {_fmt_rub(g['mae_median'])} | {g['n_better']} / {g['n_worse']} / {g['n_same']} | "
+                         f"{_pct(g['change_if_changed'], True)} | {g['coverage_80']:.0%} | "
+                         f"{'—' if g['gap_recall'] is None else _pct(g['gap_recall'])} из {g['gap_cases']} |")
         lines.append("")
     if b:
         n = len({r['company'] for r in b})
-        lines += [f"## Б. Бэктест на реальных выписках организаторов ({n} компаний)", "",
-                  "Отсечка — за 30 дней до последней операции; модель видит только прошлое, факт — последние 30 дней. "
+        lines += [f"## Б. Бэктест на реальных выписках организаторов — holdout ({n} компаний)", "",
+                  "Только **отложенные компании** (`api/reports/split.py`; единственный параметр источников — доля налогов от "
+                  "зарплаты — подобран на dev-компаниях). Отсечка — за 30 дней до последней операции; признаки и события "
+                  "считаются только по операциям до отсечки, остатки будущих дней не используются; факт — последние 30 дней. "
                   "**Налоговый календарь** и **банк** (графики кредитов и зарплатного проекта по истории счёта) не используют "
                   "будущее — их вклад честный. **1С (имитация)**: учётная система «знает» ~80% будущих поступлений по "
                   "счетам/договорам с ошибкой даты до ±4 дней — оценка того, сколько даст подключение реальной 1С.", "",
-                  "| источники | медиана MAE, ₽ | медиана ошибки, % | изменение MAE | компаний, где точнее | покрытие | разрывов найдено | точность сигналов | ложных тревог |",
-                  "|---|---:|---:|---:|---:|---:|---:|---:|---:|"]
+                  "| источники | медиана MAE, ₽ | медиана ошибки, % | лучше / хуже / без изменений | изменение MAE там, где изменилось | покрытие | разрывов найдено | точность сигналов | ложных тревог |",
+                  "|---|---:|---:|:---:|---:|---:|---:|---:|---:|"]
         for g in _agg(b, ["base", "tax_calendar", "bank", "tax+bank", "1c_sim", "all_sim"]):
-            lines.append(f"| {g['title']} | {_fmt_rub(g['mae_median'])} | {g['mape_median']:.1%} | {_pct(g['mae_change_vs_base'], True)} | "
-                         f"{g['share_better']:.0%} | {g['coverage_80']:.0%} | {_pct(g['gap_recall'])} из {g['gap_cases']} | "
+            lines.append(f"| {g['title']} | {_fmt_rub(g['mae_median'])} | {g['mape_median']:.1%} | {g['n_better']} / {g['n_worse']} / {g['n_same']} | "
+                         f"{_pct(g['change_if_changed'], True)} | {g['coverage_80']:.0%} | {_pct(g['gap_recall'])} из {g['gap_cases']} | "
                          f"{_pct(g['gap_precision'])} | {g['false_alarms']} |")
+        lines += ["", "Выводы по реальным данным:", "",
+                  "* налоговый календарь — небольшой выигрыш: даты ЕНП и квартальных авансов известны точно, суммы — оценка;",
+                  "* банк без своего файла (графики кредитов по истории) почти не меняет прогноз — ядро и так находит эти платежи;",
+                  "* имитация 1С **ухудшает** прогноз: ядро v0.1 добавляет известные поступления по счетам сверх своего "
+                  "остаточного ряда выручки (в котором эти же клиенты уже есть) — деньги учитываются дважды. Нужна доработка в "
+                  "`core/`: событие от контрагента должно вычитать его долю из остаточного потока (как это уже сделано для "
+                  "регулярных платежей в пределах ±7 дней). На демо-компаниях (часть А) выигрыш от 1С есть, потому что "
+                  "ключевой клиент — регулярный платёж, и событие его заменяет."]
         lines.append("")
     lines += ["## Как источник влияет на прогноз", "",
               "| источник | что даёт | как учитывается |", "|---|---|---|",
@@ -342,7 +373,7 @@ def write_report(a: list[dict[str, Any]], b: list[dict[str, Any]]) -> None:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--part", choices=["A", "B", "AB"], default="AB")
-    ap.add_argument("--companies", type=int, default=40)
+    ap.add_argument("--companies", type=int, default=100, help="не больше стольких holdout-компаний")
     ap.add_argument("--workers", type=int, default=max(1, (os.cpu_count() or 2)))
     ap.add_argument("--n-sims", type=int, default=1000)
     args = ap.parse_args()

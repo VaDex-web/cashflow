@@ -41,8 +41,9 @@ class Settings:
     database_url: str = ""
     jwt_secret: str = ""
     jwt_ttl_minutes: int = field(default_factory=lambda: int(os.getenv("JWT_TTL_MINUTES", "720")))
-    #: пользователи «логин:пароль,логин2:пароль2» — создаются при старте, пароли хранятся хэшами
-    users: str = field(default_factory=lambda: os.getenv("API_USERS", "demo:demo"))
+    #: пользователи «логин:пароль[:компания],…» — создаются при старте, пароли хранятся хэшами;
+    #: компания — та, что открывается после входа (демо-пользователь сразу видит S02)
+    users: str = field(default_factory=lambda: os.getenv("API_USERS", "demo:demo:S02"))
     max_upload_mb: float = field(default_factory=lambda: float(os.getenv("MAX_UPLOAD_MB", "20")))
     cors_origins: list[str] = field(default_factory=lambda: os.getenv(
         "CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173").split(","))

@@ -35,7 +35,7 @@ def make_client(tmp_path: Path, stub: bool, **overrides) -> TestClient:
     from api.main import create_app
 
     reset_settings(use_stub_core=stub, data_dir=tmp_path, database_url=f"sqlite:///{tmp_path / 'test.db'}",
-                   jwt_secret="test-secret-for-pytest-only-0123456789abcdef", users="demo:demo,other:other", n_sims=400, core_path=_core_path(), **overrides)
+                   jwt_secret="test-secret-for-pytest-only-0123456789abcdef", users="demo:demo:S02,other:other", n_sims=400, core_path=_core_path(), **overrides)
     core_adapter.reset_core()
     services.reset_cache()
     db.init_db()

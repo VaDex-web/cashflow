@@ -16,6 +16,8 @@ def _risk_on(f: dict, day_from: str, day_to: str) -> float:
 
 def test_s02_sources_reveal_gap(real):
     h = login(real)
+    # разрыв в смысле «денег меньше нуля» — как в метриках для жюри
+    assert real.put("/api/companies/S02/settings", headers=h, json={"safety_cushion": 0}).status_code == 200
     base = real.get("/api/companies/S02/forecast", headers=h).json()
     ForecastResult.model_validate(base)
     assert base["as_of"] == "2026-10-23" and len(base["daily"]) == 30
@@ -58,3 +60,16 @@ def test_dataset_style_upload_real(real):
     cats = real.get(f"/api/companies/{cid}/categories", headers=h).json()
     shares_in = sum(x["share"] for x in cats["summary"] if x["direction"] == "in")
     assert abs(shares_in - 1) < 0.01 and cats["transactions"][0]["date"] >= cats["transactions"][-1]["date"]
+
+
+def test_safety_cushion_raises_risk_earlier(real):
+    h = login(real)
+    zero = real.put("/api/companies/S01/settings", headers=h, json={"safety_cushion": 0}).json()
+    assert zero["safety_cushion"] == 0
+    f0 = real.get("/api/companies/S01/forecast", headers=h).json()
+    st = real.put("/api/companies/S01/settings", headers=h, json={"safety_cushion": None}).json()
+    assert st["safety_cushion_default"] > 0
+    f1 = real.get("/api/companies/S01/forecast", headers=h).json()
+    p0 = max((r["probability"] for r in f0["risks"]), default=0)
+    p1 = max((r["probability"] for r in f1["risks"]), default=0)
+    assert p1 >= p0

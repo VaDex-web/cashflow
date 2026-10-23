@@ -212,6 +212,31 @@ class CompanyInfo(_Model):
     operations_count: int = 0
 
 
+class Me(_Model):
+    username: str
+    company_id: Optional[str] = None
+    company_name: Optional[str] = None
+
+
+class MeUpdate(_Model):
+    company_id: str = Field(min_length=1, max_length=64)
+
+
+class CompanySettingsIn(_Model):
+    """Настройки владельца. ``null`` — вернуть значение по умолчанию."""
+
+    safety_cushion: Optional[float] = Field(default=None, ge=0, description="комфортный минимум на счёте, ₽")
+    tax_regime: Optional[Literal["usn_income", "usn_income_expense", "osno", "eshn"]] = None
+
+
+class CompanySettings(_Model):
+    safety_cushion: float = Field(description="действующий комфортный минимум, ₽ (риск считается от него)")
+    safety_cushion_default: float = Field(description="по умолчанию — расходы примерно за 7 дней")
+    safety_cushion_custom: bool
+    tax_regime: Optional[str] = None
+    tax_regime_estimated: Optional[dict[str, Any]] = None
+
+
 class CategorySummary(_Model):
     category: str
     direction: Direction

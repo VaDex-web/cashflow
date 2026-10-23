@@ -106,6 +106,6 @@ class Invoices(Integration):
 
     def message(self, company: CompanyContext, events: list[SourceEvent]) -> str:
         if company.document("invoices") is None:
-            return "Файл счетов не загружен: POST /api/companies/{id}/integrations/invoices/upload"
+            return "Файл со счетами ещё не загружен."
         od = [e for e in events if e.status == "overdue"]
         return f"Счетов: {len(events)}, просрочено: {len(od)}" + (f" на {rub(sum(e.amount for e in od))}" if od else "") + "."

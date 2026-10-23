@@ -24,6 +24,8 @@ class User(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     username: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     password_hash: Mapped[str] = mapped_column(String(256))
+    #: один пользователь = одна компания: та, что открывается после входа
+    company_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
@@ -154,7 +156,23 @@ def init_db(url: str | None = None) -> None:
             cur.execute("PRAGMA journal_mode=WAL")
             cur.close()
     Base.metadata.create_all(_engine)
+    _migrate(_engine)
     _Session = sessionmaker(bind=_engine, expire_on_commit=False)
+
+
+def _migrate(engine: Any) -> None:
+    """Добавить новые колонки в уже созданную базу (SQLite не делает этого в create_all)."""
+    from sqlalchemy import inspect, text
+
+    insp = inspect(engine)
+    for table in Base.metadata.sorted_tables:
+        if not insp.has_table(table.name):
+            continue
+        have = {c["name"] for c in insp.get_columns(table.name)}
+        for col in table.columns:
+            if col.name not in have and col.nullable:
+                with engine.begin() as conn:
+                    conn.execute(text(f'ALTER TABLE {table.name} ADD COLUMN {col.name} {col.type.compile(engine.dialect)}'))
 
 
 def get_session() -> Iterator[Session]:
