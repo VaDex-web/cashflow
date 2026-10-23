@@ -1,5 +1,6 @@
 [
   {
+    "kind": "gap",
     "date": "2026-11-06",
     "shortfall_amount": 270000,
     "probability": 0.88,
@@ -12,6 +13,7 @@
     ]
   },
   {
+    "kind": "gap",
     "date": "2026-11-20",
     "shortfall_amount": 62000,
     "probability": 0.57,

@@ -45,6 +45,7 @@ export interface Risk {
   severity: Severity
   reason: string
   recommendations: string[]
+  kind?: 'gap' | 'below_comfort' // [optional] разрыв ниже 0 ₽ или ниже комфортного минимума
 }
 
 export interface Recurring {
@@ -67,6 +68,7 @@ export interface ForecastResult {
   warnings?: string[] // [optional]
   current_balance?: number // [optional]
   as_of?: string // [optional]
+  comfort_balance?: number // [optional] комфортный минимум на счёте
 }
 
 export interface ScenarioResult {

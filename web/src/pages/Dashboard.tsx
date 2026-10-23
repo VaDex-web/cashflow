@@ -43,8 +43,8 @@ export function Dashboard() {
         <Link to="/scenarios" className="btn btn-ghost">🔮 А что если…</Link>
       </div>
 
-      <Warnings items={f.warnings} />
       <RiskCard fc={f} />
+      <Warnings items={f.warnings} />
 
       <div className="grid-3">
         {startBal != null && (
@@ -75,6 +75,7 @@ export function Dashboard() {
             events={ev.data ?? []}
             risks={f.risks}
             start={startBal != null ? { date: today, balance: startBal } : undefined}
+            comfort={f.comfort_balance}
           />
           <ChartLegend items={[
             { color: '#11553f', label: 'Ожидаемый остаток' },
@@ -84,7 +85,7 @@ export function Dashboard() {
 
         <section className="card">
           <div className="card-head"><h2>Предупреждения</h2></div>
-          <AlertsList risks={f.risks} />
+          <AlertsList risks={f.risks} daily={f.daily} comfort={f.comfort_balance} />
         </section>
       </div>
 

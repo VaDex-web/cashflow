@@ -7,7 +7,7 @@
 | `login_response.json` | `POST /api/auth/login` |
 | `health.json` | `GET /api/health` |
 | `company_created.json` | `POST /api/companies` |
-| `forecast.json` | `GET /api/companies/{id}/forecast` — разрыв 5–8 ноября, худший день 6 ноября: −270 000 ₽, 88% |
+| `forecast.json` | `GET /api/companies/{id}/forecast` — разрыв 5–8 ноября, худший день 6 ноября: −270 000 ₽, 88%; `risks[].kind`, `comfort_balance` |
 | `forecast_low_data.json` | то же, но с `warnings` (мало данных) |
 | `alerts.json` | `GET /api/companies/{id}/alerts` |
 | `categories.json` | `GET /api/companies/{id}/categories` |

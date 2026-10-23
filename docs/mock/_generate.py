@@ -121,7 +121,7 @@ def build_forecast(events, revenue_k=1.0, fixed_k=1.0, label=None):
             prob = round(phi(-p50 / s), 2)
             shortfall = round(-p50) if p50 < 0 else round(-worst["balance_low"])
             sev = "high" if prob >= 0.6 else "medium" if prob >= 0.3 else "low"
-            risks.append({"date": worst["date"], "shortfall_amount": int(round(shortfall, -3)),
+            risks.append({"kind": "gap", "date": worst["date"], "shortfall_amount": int(round(shortfall, -3)),
                           "probability": prob, "severity": sev, "_episode": [r["date"] for r, _ in episode]})
             episode = []
 
@@ -160,6 +160,7 @@ def build_forecast(events, revenue_k=1.0, fixed_k=1.0, label=None):
         "horizon_days": HORIZON,
         "as_of": TODAY.isoformat(),
         "current_balance": START_BALANCE,
+        "comfort_balance": 150_000,
         "daily": [row for row, _ in daily],
         "risks": risks,
         "recurring": RECURRING,

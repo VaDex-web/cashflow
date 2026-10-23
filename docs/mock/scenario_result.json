@@ -5,6 +5,7 @@
     "horizon_days": 30,
     "as_of": "2026-10-23",
     "current_balance": 500000,
+    "comfort_balance": 150000,
     "daily": [
       {
         "date": "2026-10-24",
@@ -220,6 +221,7 @@
     ],
     "risks": [
       {
+        "kind": "gap",
         "date": "2026-11-06",
         "shortfall_amount": 270000,
         "probability": 0.88,
@@ -232,6 +234,7 @@
         ]
       },
       {
+        "kind": "gap",
         "date": "2026-11-20",
         "shortfall_amount": 62000,
         "probability": 0.57,
@@ -325,6 +328,7 @@
     "horizon_days": 30,
     "as_of": "2026-10-23",
     "current_balance": 500000,
+    "comfort_balance": 150000,
     "daily": [
       {
         "date": "2026-10-24",
@@ -540,6 +544,7 @@
     ],
     "risks": [
       {
+        "kind": "gap",
         "date": "2026-11-20",
         "shortfall_amount": 774000,
         "probability": 0.99,

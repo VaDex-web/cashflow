@@ -46,12 +46,20 @@ export function Empty({ icon = '📭', title, children }: { icon?: string; title
 }
 
 export function Warnings({ items }: { items?: string[] }) {
+  const [open, setOpen] = useState(false)
   if (!items?.length) return null
+  if (items.length === 1) return <div className="notice notice-warn"><span>ℹ️</span><span>{items[0]}</span></div>
   return (
-    <div className="grid" style={{ gap: 8 }}>
-      {items.map((w) => (
-        <div key={w} className="notice notice-warn"><span>ℹ️</span><span>{w}</span></div>
-      ))}
+    <div className="notice notice-warn" style={{ display: 'block' }}>
+      <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open}
+        style={{ border: 0, background: 'none', padding: 0, cursor: 'pointer', fontWeight: 600, color: 'inherit', textAlign: 'left' }}>
+        ℹ️ Что учтено в прогнозе и замечания о данных ({items.length}) {open ? '▲' : '▼'}
+      </button>
+      {open && (
+        <ul style={{ margin: '8px 0 0', paddingLeft: 22, display: 'grid', gap: 4 }}>
+          {items.map((w) => <li key={w}>{w}</li>)}
+        </ul>
+      )}
     </div>
   )
 }

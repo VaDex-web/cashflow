@@ -1,8 +1,9 @@
-import type { Risk } from '../types'
-import { fmtDayWeek, fmtPct, fmtRub } from '../lib/format'
+import type { DailyPoint, Risk } from '../types'
+import { riskKind, shortfallText } from '../lib/risk'
+import { fmtDayWeek, fmtPct } from '../lib/format'
 import { Empty, Hint, SeverityBadge } from './ui'
 
-export function AlertsList({ risks }: { risks: Risk[] }) {
+export function AlertsList({ risks, daily = [], comfort }: { risks: Risk[]; daily?: DailyPoint[]; comfort?: number }) {
   if (!risks.length) return <Empty icon="✅" title="Предупреждений нет">В ближайший месяц остаток не опускается ниже нуля.</Empty>
   return (
     <div className="grid" style={{ gap: 12 }}>
@@ -13,10 +14,13 @@ export function AlertsList({ risks }: { risks: Risk[] }) {
             <SeverityBadge s={r.severity} />
           </div>
           <div className="row" style={{ marginTop: 6, gap: 6 }}>
-            <span>Может не хватить <b className="num">{fmtRub(r.shortfall_amount)}</b></span>
+            {riskKind(r) === 'below_comfort'
+              ? <span>Останется <b>{shortfallText(r, daily, comfort).main}</b></span>
+              : <span>Может не хватить <b className="num">{shortfallText(r, daily, comfort).main}</b></span>}
             <span className="muted">· вероятность {fmtPct(r.probability)}</span>
-            <Hint>Вероятность — доля смоделированных вариантов будущего, в которых в этот день денег на счёте меньше нуля.</Hint>
+            <Hint>Вероятность — доля смоделированных вариантов будущего, в которых в этот день денег на счёте {riskKind(r) === 'below_comfort' ? 'меньше комфортного минимума' : 'меньше нуля'}.</Hint>
           </div>
+          {shortfallText(r, daily, comfort).sub && <p className="small" style={{ marginTop: 6 }}>{shortfallText(r, daily, comfort).sub}</p>}
           <p className="small muted" style={{ marginTop: 8 }}>{r.reason}</p>
           {r.recommendations.length > 0 && (
             <>

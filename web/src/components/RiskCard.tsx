@@ -1,6 +1,9 @@
-import type { ForecastResult, Risk } from '../types'
+import type { ForecastResult } from '../types'
 import { daysBetween, fmtDay, fmtPct, fmtRub, inDays, toISO, parseDate } from '../lib/format'
 import { Hint } from './ui'
+import { mainRisk, riskKind, shortfallText } from '../lib/risk'
+
+export { mainRisk }
 
 export function forecastToday(fc: ForecastResult): string {
   if (fc.as_of) return fc.as_of
@@ -9,23 +12,20 @@ export function forecastToday(fc: ForecastResult): string {
   return toISO(d)
 }
 
-/** Главный риск — самый ранний среди самых серьёзных */
-export function mainRisk(risks: Risk[]): Risk | undefined {
-  const order = { high: 0, medium: 1, low: 2 }
-  return [...risks].sort((a, b) => order[a.severity] - order[b.severity] || a.date.localeCompare(b.date))[0]
-}
-
 const TONE = {
   high: { bg: 'linear-gradient(135deg, #fff1f1 0%, #ffe3e3 100%)', border: '#f3b4b4', dot: '#d23b3b', title: 'Внимание: может не хватить денег' },
   medium: { bg: 'linear-gradient(135deg, #fff8e8 0%, #ffefcc 100%)', border: '#f0d08a', dot: '#d98a00', title: 'Есть риск нехватки денег' },
   low: { bg: 'linear-gradient(135deg, #f2faea 0%, #e3f3d0 100%)', border: '#c2e19b', dot: '#6fa62a', title: 'Денег хватает, но есть слабое место' },
+  comfort: { bg: 'linear-gradient(135deg, #fff8e8 0%, #ffefcc 100%)', border: '#f0d08a', dot: '#d98a00', title: 'Запас денег будет на исходе' },
   ok: { bg: 'linear-gradient(135deg, #f2faea 0%, #e3f3d0 100%)', border: '#c2e19b', dot: '#2f8f4e', title: 'Всё в порядке' },
 }
 
 export function RiskCard({ fc }: { fc: ForecastResult }) {
   const r = mainRisk(fc.risks)
   const today = forecastToday(fc)
-  const tone = TONE[r?.severity ?? 'ok']
+  const kind = r ? riskKind(r) : null
+  const tone = TONE[!r ? 'ok' : kind === 'below_comfort' ? 'comfort' : r.severity]
+  const amount = r ? shortfallText(r, fc.daily, fc.comfort_balance) : null
   const minDay = fc.daily.reduce((a, b) => (b.balance_p50 < a.balance_p50 ? b : a))
 
   return (
@@ -37,17 +37,21 @@ export function RiskCard({ fc }: { fc: ForecastResult }) {
           {r ? (
             <>
               <h1 style={{ fontSize: 'clamp(22px, 3vw, 32px)', marginTop: 6, lineHeight: 1.25 }}>
-                {cap(inDays(daysBetween(today, r.date)))}, {fmtDay(r.date)}, может не хватить{' '}
-                <span style={{ color: tone.dot, whiteSpace: 'nowrap' }}>{fmtRub(r.shortfall_amount)}</span>
+                {cap(inDays(daysBetween(today, r.date)))}, {fmtDay(r.date)},{' '}
+                {kind === 'below_comfort' ? 'на счёте может остаться' : 'может не хватить'}{' '}
+                <span style={{ color: tone.dot, whiteSpace: 'nowrap' }}>{amount!.main}</span>
               </h1>
+              {amount!.sub && <p className="muted" style={{ marginTop: 6 }}>{amount!.sub}</p>}
               <div className="row" style={{ marginTop: 10, gap: 8 }}>
                 <span className="badge" style={{ background: '#fff', color: tone.dot, fontSize: 14, padding: '5px 12px' }}>
                   Вероятность {fmtPct(r.probability)}
                 </span>
                 <Hint>
                   Мы много раз проиграли ближайший месяц с разными задержками оплат и колебаниями выручки.
-                  В {fmtPct(r.probability)} вариантов остаток {fmtDay(r.date)} уходит ниже нуля.
-                  Сумма — сколько не хватит в самый трудный день при ожидаемом ходе событий.
+                  В {fmtPct(r.probability)} вариантов остаток {fmtDay(r.date)} уходит {kind === 'below_comfort' ? 'ниже вашего комфортного минимума' : 'ниже нуля'}.
+                  {kind === 'below_comfort'
+                    ? ' Комфортный минимум — запас на счёте, ниже которого вам неспокойно (по умолчанию — расходы примерно за неделю).'
+                    : ' Крупная сумма — сколько не хватит при ожидаемом ходе событий, «до …» — сколько нужно, чтобы хватило в 9 случаях из 10.'}
                 </Hint>
                 {fc.risks.length > 1 && <span className="small muted">и ещё {fc.risks.length - 1} {fc.risks.length - 1 === 1 ? 'риск' : 'риска'} ниже</span>}
               </div>
