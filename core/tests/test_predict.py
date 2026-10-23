@@ -31,7 +31,7 @@ def test_predict_files_rows_and_determinism(tmp_path=None):
     c1, j1, res = predict(src, tmp / "p1.csv", horizon=30, n_sims=300, workers=1)
     c2, j2, _ = predict(src, tmp / "p2.csv", horizon=30, n_sims=300, workers=2)
     assert c1.read_bytes() == c2.read_bytes() and j1.read_bytes() == j2.read_bytes(), "вывод должен быть детерминированным"
-    rows = list(csv.reader(open(c1, encoding="utf-8")))
+    rows = list(csv.reader(open(c1, encoding="utf-8"), delimiter=";"))
     assert rows[0] == CSV_COLUMNS
     assert len(rows) - 1 == 3 * 30
     by = {}

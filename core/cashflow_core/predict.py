@@ -6,7 +6,7 @@
 модель видит только строки выписки), строится прогноз остатка по дням на
 ``horizon`` дней вперёд и риски разрывов. Пишутся два файла:
 
-* ``<out>.csv`` — ``company_id, date, balance_forecast, balance_low, balance_high``
+* ``<out>.csv`` — ``company_id;date;balance_forecast;balance_low;balance_high`` (разделитель «;», как во входном датасете)
   (медиана и границы P10/P90 по Monte Carlo), ровно ``horizon`` строк на компанию;
 * ``<out>.json`` — по компаниям: дата последней операции, текущий остаток, подушка
   безопасности, риски (``date, shortfall_amount, probability, severity, kind, reason``),
@@ -100,10 +100,10 @@ def predict(path: str | Path, out: str | Path, horizon: int = 30, seed: int = 42
     csv_path, json_path = _paths(out)
     csv_path.parent.mkdir(parents=True, exist_ok=True)
     with open(csv_path, "w", newline="", encoding="utf-8") as f:
-        w = csv.writer(f)
+        w = csv.writer(f, delimiter=";", lineterminator="\n")
         w.writerow(CSV_COLUMNS)
         for r in results:
-            w.writerows(r["rows"])
+            w.writerows([row[0], row[1], *(f"{v:.2f}" for v in row[2:])] for row in r["rows"])
     payload = {
         "horizon_days": int(horizon), "seed": int(seed), "n_sims": int(n_sims),
         "interval": {"balance_forecast": "медиана (P50)", "balance_low": "P10", "balance_high": "P90"},

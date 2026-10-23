@@ -22,7 +22,7 @@ python core/tests/run_tests.py              # то же без pytest (мини-
 
 # машинно-читаемый прогноз для контрольного датасета (последняя дата каждой компании → horizon дней)
 python -m cashflow_core.predict data/raw/all_operations.csv --horizon 30 --out predictions.csv
-#   predictions.csv : company_id, date, balance_forecast, balance_low, balance_high   (P50 / P10 / P90)
+#   predictions.csv : company_id;date;balance_forecast;balance_low;balance_high   (разделитель «;»; P50 / P10 / P90)
 #   predictions.json: по компаниям — as_of, current_balance, comfort_balance,
 #                     risks [{kind: gap|below_comfort, date, shortfall_amount, probability, severity, reason}], warnings, status
 
