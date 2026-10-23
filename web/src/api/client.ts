@@ -1,11 +1,11 @@
-// Клиент API. VITE_USE_MOCK=true → читаем docs/mock/*.json, иначе ходим в /api (FastAPI).
+// Клиент API: по умолчанию ходим в /api (FastAPI). VITE_USE_MOCK=true — только для разработки без бэкенда (docs/mock/*.json).
 import type {
   CashEvent, CategoriesResponse, ForecastResult, IntegrationName, MetricsReport, NewCashEvent,
   PlanFact, Recurring, Risk, Scenario, ScenarioResult, SyncResponse, Transaction,
 } from '../types'
 import { mockApi } from './mock'
 
-export const USE_MOCK = (import.meta.env.VITE_USE_MOCK ?? 'true') !== 'false'
+export const USE_MOCK = import.meta.env.VITE_USE_MOCK === 'true'
 const BASE = (import.meta.env.VITE_API_URL ?? '') + '/api'
 
 const TOKEN_KEY = 'cf_token'

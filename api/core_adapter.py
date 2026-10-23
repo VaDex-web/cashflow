@@ -187,7 +187,8 @@ _backend: StubCore | RealCore | None = None
 
 
 def get_core() -> StubCore | RealCore:
-    """Ядро по настройке USE_STUB_CORE. Если настоящее не импортируется — заглушка и предупреждение в логе."""
+    """Ядро по настройке USE_STUB_CORE. Без неё нужно настоящее ``cashflow_core``: если оно не импортируется —
+    ошибка запуска, а не тихая подмена прогноза заглушкой."""
     global _backend
     if _backend is not None:
         return _backend
@@ -202,8 +203,8 @@ def get_core() -> StubCore | RealCore:
 
         _backend = RealCore(cashflow_core)
     except ImportError as exc:
-        log.warning("cashflow_core недоступен (%s) — включена заглушка ядра", type(exc).__name__)
-        _backend = StubCore(s.mock_dir)
+        raise RuntimeError(f"Ядро cashflow_core не найдено ({type(exc).__name__}): установите `pip install -e core` "
+                           f"или задайте CORE_PATH; для разработки без ядра — USE_STUB_CORE=true") from exc
     return _backend
 
 

@@ -7,13 +7,12 @@ React + Vite + TypeScript + Recharts. Контракт API — [`../docs/contrac
 ```bash
 cd web
 npm install
-cp .env.example .env      # VITE_USE_MOCK=true — работает без бэкенда
-npm run dev               # http://localhost:5173
+npm run dev               # http://localhost:5173, нужен запущенный API на :8000
 ```
 
-- **Мок-режим** (`VITE_USE_MOCK=true`, по умолчанию): данные из `../docs/mock/*.json`, вход — любой логин/пароль.
-- **Реальный API** (`VITE_USE_MOCK=false`): запросы `/api/*` Vite проксирует на `http://localhost:8000`
+- **Реальный API** (по умолчанию): запросы `/api/*` Vite проксирует на `http://localhost:8000`
   (другой адрес — `API_URL=http://host:port npm run dev`). Токен JWT хранится в `localStorage` и уходит в `Authorization: Bearer`.
+- **Мок-режим** (`VITE_USE_MOCK=true`, только для разработки): данные из `../docs/mock/*.json`, вход — любой логин/пароль.
 - Метрики на странице «Качество прогноза» берутся из `../core/reports/metrics.json`, если файл есть; иначе — мок с пометкой «подставить».
 
 Сборка: `npm run build` → `dist/`.

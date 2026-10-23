@@ -2,23 +2,43 @@
 
 Хакатон, кейс Банка Центр-Инвест. Сервис по истории банковских операций прогнозирует остаток на счёте по дням на 30+ дней вперёд, находит кассовые разрывы (дата, сумма, вероятность) и объясняет их предпринимателю простыми словами.
 
-| папка | что | кто |
-|---|---|---|
-| `core/` | Python-пакет `cashflow_core`: данные, категории, прогноз, риски, бэктест | A |
-| `api/` | FastAPI: JWT, эндпоинты, интеграции, тесты, синтетика | B |
-| `web/` | интерфейс: React + Vite + TypeScript + Recharts | C |
-| `docs/` | [контракт](docs/contract.md), [моки](docs/mock/), [архитектура](docs/architecture.md), [сценарий демо](docs/demo_script.md), презентация | C |
-| `data/raw/` | датасет организаторов — **не в git**, распаковать архив `cashflow_dataset_participants.zip` сюда | — |
-| `data/synthetic/` | сгенерированные демо-данные | B |
+| папка | что |
+|---|---|
+| `core/` | Python-пакет `cashflow_core`: загрузка выписки, категории, регулярные платежи, налоги, прогноз, риски, сценарии, бэктест — [README](core/README.md) |
+| `api/` | FastAPI: JWT, эндпоинты по контракту, интеграции-имитации, план-факт, тесты — [README](api/README.md) |
+| `web/` | интерфейс: React + Vite + TypeScript + Recharts — [README](web/README.md) |
+| `docs/` | [контракт](docs/contract.md), [архитектура](docs/architecture.md), [аудит](docs/audit.md), [сценарий демо](docs/demo_script.md), презентация, моки |
+| `data/raw/` | датасет организаторов — **не в git**: распаковать `cashflow_dataset_participants.zip` сюда |
+| `data/synthetic/` | наши демо-данные (компании S01–S05, источники, «как было на самом деле») |
 
-**Правила:** каждый работает только в своей папке; контракт [`docs/contract.md`](docs/contract.md) меняется только после согласования с тимлидом; небольшие коммиты; README с командами запуска в своей папке.
+Контракт данных между частями — [`docs/contract.md`](docs/contract.md); изменения — только после согласования с тимлидом.
 
-## Быстрый старт
+## Запуск локально
+
+Нужны Python 3.10+ и Node 20+.
 
 ```bash
-# датасет
+# 0. датасет организаторов
 mkdir -p data/raw && unzip cashflow_dataset_participants.zip -d data/raw
 
-# интерфейс на моках
-cd web && npm install && npm run dev   # http://localhost:5173
+# 1. ядро и API (из корня репозитория)
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r api/requirements.txt && pip install -e core
+uvicorn api.main:app --port 8000          # http://localhost:8000/docs
+
+# 2. интерфейс (в другом терминале)
+cd web && npm ci && npm run dev           # http://localhost:5173, вход demo / demo
+```
+
+## Проверка
+
+```bash
+python -m pytest core/tests -q            # тесты ядра
+python -m pytest api/tests -q             # тесты API (в т.ч. на настоящем ядре)
+
+# прогноз для контрольного датасета: CSV (company_id;date;balance_forecast;balance_low;balance_high) + JSON с рисками
+python -m cashflow_core.predict data/raw/all_operations.csv --horizon 30 --out predictions.csv
+
+# качество прогноза на любом датасете в формате организаторов (бэктест rolling origin, 3 модели)
+python -m cashflow_core.evaluate data/raw --workers 4
 ```
