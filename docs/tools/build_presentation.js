@@ -130,7 +130,7 @@ const content = (section) => pres.addSlide({ masterName: 'CONTENT', sectionTitle
   s = content('Проблема и решение')
   s.addText('Три ответа на одном экране', { placeholder: 'title' })
   const sol = [
-    [fa.FaScaleBalanced, 'Хватит ли денег', 'Светофор и одна фраза простыми словами: «через 5 дней может не хватить 685 000 ₽»'],
+    [fa.FaScaleBalanced, 'Хватит ли денег', 'Светофор и одна фраза простыми словами: «через 13 дней, 5 ноября, может не хватить 685 000 ₽»'],
     [fa.FaCalendarDays, 'Когда и сколько', 'Остаток по дням на 30+ дней: ожидаемый и возможный диапазон, дата, сумма и вероятность разрыва'],
     [fa.FaListCheck, 'Что делать', '2–3 конкретных действия: кого попросить заплатить раньше, что перенести, когда нужен овердрафт'],
   ]
@@ -155,7 +155,7 @@ const content = (section) => pres.addSlide({ masterName: 'CONTENT', sectionTitle
     s.addText(steps[i][0], { x: 7.2, y, w: 0.4, h: 0.4, fontSize: 14, bold: true, color: C.text2, align: 'center', valign: 'middle', margin: 0, isTextBox: true, objectName: 'step num ' + i })
     s.addText(steps[i][1], { x: 7.75, y: y - 0.05, w: 1.75, h: 0.9, fontSize: 11, color: C.text1, margin: 0, valign: 'top', isTextBox: true, objectName: 'step text ' + i })
   }
-  s.addNotes('Входим, видим одну фразу: через 5 дней, 28 октября, может не хватить 685 000 ₽. Ниже причина: налоги и кредит раньше, чем придут деньги от клиента, и первое, что можно сделать. Наводим на график: линия — ожидаемый остаток, полоса — возможный диапазон, красная зона — денег нет.')
+  s.addNotes('Входим, видим одну фразу: через 13 дней, 5 ноября, может не хватить 685 000 ₽, вероятность 97%. Ниже причина: 5 ноября зарплата 956 тыс. ₽ и аренда, а крупный клиент задерживает 2,3 млн ₽, и первое, что можно сделать — попросить его заплатить до 5 ноября. Наводим на график: линия — ожидаемый остаток, полоса — возможный диапазон, красная зона — денег нет.')
 
   s = content('Демо')
   s.addText('«Что если»: клиент заплатит на 3 недели позже', { placeholder: 'title' })
@@ -169,7 +169,7 @@ const content = (section) => pres.addSlide({ masterName: 'CONTENT', sectionTitle
     { text: 'рост постоянных расходов', options: { bullet: true } },
   ], { x: 7.2, y: 2.3, w: 2.3, h: 1.5, fontSize: 12, color: C.text1, paraSpaceAfter: 4, margin: 0, valign: 'top', isTextBox: true, objectName: 'scenario list' })
   s.addText('Обычный и негативный прогноз — на одном графике, результат — одной фразой', { x: 7.2, y: 3.9, w: 2.3, h: 1.1, fontSize: 12, italic: true, color: C.text2, margin: 0, valign: 'top', isTextBox: true, objectName: 'scenario note' })
-  s.addNotes('Предприниматель проверяет свои страхи. Задержка крупного клиента на 3 недели: разрыв глубже и дольше. Оба прогноза на одном графике.')
+  s.addNotes('Предприниматель проверяет свои страхи. Задержка крупного клиента на 3 недели: разрыв останется 5 ноября, но не хватит уже 936 000 ₽ вместо 685 000 ₽ и продлится дольше. Оба прогноза на одном графике.')
 
   s = content('Демо')
   s.addText('План-факт и источники: прогноз живой', { placeholder: 'title' })
