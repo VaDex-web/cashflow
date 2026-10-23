@@ -24,7 +24,7 @@ import json
 import os
 import time
 from collections import Counter
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -33,6 +33,7 @@ import numpy as np
 import pandas as pd
 
 from .backtest import DEFAULT_MODELS, aggregate, calibrate_interval_scale, metrics_table
+from .parallel import make_pool
 from .schema import INTERVAL_SCALE
 
 #: Меняется, когда меняется модель: старый кэш тогда не используется.
@@ -119,7 +120,7 @@ def run(companies: list[tuple[str, Any]], *, workers: int, cache: Path | None, o
     t0 = time.time()
     if progress:
         print(f"компаний: {len(companies)}, из кэша: {len(results)}, считать: {len(todo)}", flush=True)
-    with ProcessPoolExecutor(max_workers=max(1, workers)) as ex:
+    with make_pool(workers) as ex:
         futs = {ex.submit(_job, (cid, src, kw)): f for cid, src, kw, f in todo}
         for fut in as_completed(futs):
             r = fut.result()

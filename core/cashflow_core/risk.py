@@ -128,8 +128,12 @@ def _episode_stats(bal: np.ndarray, p: np.ndarray, level: float, a: int, b: int)
     return k, float(seg.max()), float(np.quantile(hit, 0.9)) if len(hit) else 0.0
 
 
-def find_risks(state: "ForecastState", plan: "Plan", sim: "SimResult") -> list[dict[str, Any]]:
-    """Список рисков в формате контракта, по дате."""
+def find_risks(state: "ForecastState", plan: "Plan", sim: "SimResult", with_kind: bool = False) -> list[dict[str, Any]]:
+    """Список рисков в формате контракта, по дате.
+
+    ``with_kind=True`` добавляет поле ``kind``: ``"gap"`` (остаток < 0) или ``"below_comfort"``
+    (ниже подушки безопасности) — для машинного вывода :mod:`predict`; в ответе API его нет.
+    """
     thr = float(state.settings.get("threshold", 0.0))
     comfort = float(state.settings.get("comfort_balance") or 0.0)
     bal = sim.balances
@@ -143,6 +147,7 @@ def find_risks(state: "ForecastState", plan: "Plan", sim: "SimResult") -> list[d
         gap_days.update(range(a, b + 1))
         k, prob, shortfall = _episode_stats(bal, p_gap, thr, a, b)
         risks.append((k, {
+            "kind": "gap",
             "date": plan.dates[k].isoformat(),
             "shortfall_amount": round(shortfall, 2),
             "probability": round(min(1.0, max(0.0, prob)), 3),
@@ -158,6 +163,7 @@ def find_risks(state: "ForecastState", plan: "Plan", sim: "SimResult") -> list[d
                 continue  # в эти дни уже есть риск разрыва — он важнее
             k, prob, shortfall = _episode_stats(bal, p_c, comfort, a, b)
             risks.append((k, {
+                "kind": "below_comfort",
                 "date": plan.dates[k].isoformat(),
                 "shortfall_amount": round(shortfall, 2),
                 "probability": round(min(1.0, max(0.0, prob)), 3),
@@ -166,6 +172,9 @@ def find_risks(state: "ForecastState", plan: "Plan", sim: "SimResult") -> list[d
                 "recommendations": _recommendations(state, plan, k, a, b, shortfall, gap=False),
             }))
     risks.sort(key=lambda kr: kr[0])
+    if not with_kind:
+        for _, r in risks:
+            r.pop("kind", None)
     return [r for _, r in risks]
 
 

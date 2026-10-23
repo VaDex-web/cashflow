@@ -20,6 +20,12 @@ python -m cashflow_core.demo data/raw/statements/C001.csv --json /tmp/forecast.j
 python -m pytest core/tests                 # 43 теста (~1,5 мин)
 python core/tests/run_tests.py              # то же без pytest (мини-раннер)
 
+# машинно-читаемый прогноз для контрольного датасета (последняя дата каждой компании → horizon дней)
+python -m cashflow_core.predict data/raw/all_operations.csv --horizon 30 --out predictions.csv
+#   predictions.csv : company_id, date, balance_forecast, balance_low, balance_high   (P50 / P10 / P90)
+#   predictions.json: по компаниям — as_of, current_balance, comfort_balance,
+#                     risks [{kind: gap|below_comfort, date, shortfall_amount, probability, severity, reason}], warnings, status
+
 # качество на ЛЮБОМ датасете в формате организаторов (папка со statements/*.csv или один CSV)
 python -m cashflow_core.evaluate data/raw --workers 4          # → core/reports/evaluate_raw.{json,md}
 python -m cashflow_core.evaluate /путь/к/новому/all_operations.csv --workers 8
@@ -147,6 +153,16 @@ state, res = update_forecast(state, new_rows)                     # новые �
   `core/reports/evaluate_<имя>.{json,md}`. Кэш по содержимому выписки — прерванный прогон досчитывается.
 * Файлы: `metrics.md` (таблица для слайда и методика), `metrics.json` (раздел 5 контракта),
   `metrics_detail.json`, `errors.png`, `calibration.json`, `evaluate_dev.*`, `evaluate_holdout.*`.
+
+## predict — прогноз без интерфейса
+
+`python -m cashflow_core.predict <CSV | папка> --horizon 30 --out <файл>` (из кода — `cashflow_core.predict.predict(...)`
+или `predict_company(cid, df)` для одной компании). Для каждой компании берётся последняя дата её выписки;
+модель видит только строки выписки. Детерминированно: seed 42, сортировка по `company_id`, без временных меток —
+одинаковый вход даёт побайтно одинаковые файлы при любом `--workers` (проверяет `tests/test_predict.py`).
+Не падает: короткая история, пустые ИНН/назначения, одна строка, овердрафт — компания всё равно получает
+`horizon` строк; если прогноз построить не удалось, остаток показывается без изменений, `status: "fallback"`,
+причина — в `warnings`. Скорость: ~1–2 с на компанию в одном процессе.
 
 ## Без подгонки под датасет
 
