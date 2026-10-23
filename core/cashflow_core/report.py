@@ -142,7 +142,10 @@ def write_markdown(met: dict[str, Any], meta: dict[str, Any], cat: dict[str, Any
         return str(v)
     order = [m for m in ("naive", "ets", "hybrid") if m in tab.index] + [m for m in tab.index if m not in ("naive", "ets", "hybrid")]
     cols = list(tab.columns)
-    lines = ["# Качество прогноза — бэктест", "",
+    sp = meta.get("split") or {}
+    lines = ["# Качество прогноза — бэктест на отложенных компаниях (holdout)", "",
+             f"Компании разделены на dev ({sp.get('dev', '—')}) и holdout ({sp.get('holdout', '—')}): {sp.get('rule', '')}. "
+             "Все параметры подбирались только на dev; ниже — метрики **только holdout**.", "",
              "В `metrics.json` (формат контракта) поле `mape` — медианная ошибка остатка в долях месячного оборота, "
              "`mae` — средняя абсолютная ошибка остатка в ₽, `coverage_80` — доля дней, где факт внутри P10–P90.", "",
              f"Сформировано {meta['generated_at']}. Компаний: {meta['n_companies']}, прогнозов на модель: "
@@ -175,14 +178,12 @@ def write_markdown(met: dict[str, Any], meta: dict[str, Any], cat: dict[str, Any
               f"{g.get('date_error_days_median', '—')} дн., Brier {g.get('brier', '—')}.",
               f"* По фактическому остатку: TP {ga.get('tp')}, FP {ga.get('fp')}, FN {ga.get('fn')}, TN {ga.get('tn')}.",
               ""]
-    if calib and calib.get("hybrid", {}).get("k"):
-        c = calib["hybrid"]
-        lines += ["## Калибровка интервалов (гибрид)",
-                  f"Множитель ширины подобран на ранних отсечках каждой компании ({c['n_early']} прогнозов) и проверен "
-                  f"на поздних ({c['n_late']}): k = **{c['k']}**. Покрытие P10–P90 на поздних отсечках: "
-                  f"{fmt(c['coverage_late_before'])} → **{fmt(c['coverage_late_after'])}** (норма 80%)."
-                  + ("" if c.get("exact") else " Оценка приближённая (симметричный интервал): в этом прогоне границы "
-                     "не записывались отдельно."), ""]
+    if calib and calib.get("k"):
+        lines += ["## Калибровка интервалов",
+                  f"Множитель ширины интервала гибрида k = **{calib['k']}** подобран только на dev-компаниях "
+                  f"({calib.get('n_dev_companies')}): покрытие P10–P90 на dev {fmt(calib.get('dev_coverage_before'))} → "
+                  f"{fmt(calib.get('dev_coverage_after'))}. Цифры выше — holdout-компании, которые при подборе не использовались, "
+                  "в продуктовой конфигурации с этим k.", ""]
     lines += ["## Методика и оговорки",
               "* Rolling origin: на каждой дате отсечения модель обучается только на прошлом (категории, регулярные "
               "платежи, налоги, модели потоков), прогноз на 30 дней сравнивается с фактом.",
@@ -259,78 +260,116 @@ def write_all(detail: dict[str, Any], out: Path, data: Path | None = None) -> No
     plot_errors(met, out / "errors.png")
 
 
+def make_split(companies_csv: Path, seed: int = 42) -> dict[str, Any]:
+    """Разделить компании на dev (подбор параметров) и holdout (финальные метрики) 50/50 внутри каждой отрасли.
+
+    Порядок внутри отрасли задаётся хэшем (seed + company_id) — воспроизводимо и без выбора «удобных» компаний.
+    """
+    import hashlib
+
+    co = pd.read_csv(companies_csv, sep=";", dtype=str, encoding="utf-8-sig")
+    dev, hold = [], []
+    for _, g in co.groupby("industry"):
+        ids = sorted(g["company_id"], key=lambda c: hashlib.sha1(f"{seed}:{c}".encode()).hexdigest())
+        dev += ids[0::2]
+        hold += ids[1::2]
+    return {"seed": seed, "rule": "50/50 внутри каждой отрасли, порядок по sha1(seed:company_id)",
+            "dev": sorted(dev), "holdout": sorted(hold)}
+
+
+def _load_split(out: Path, data: Path, seed: int) -> dict[str, Any]:
+    f = out / "split.json"
+    if f.exists():
+        return json.loads(f.read_text(encoding="utf-8"))
+    sp = make_split(data / "companies.csv", seed)
+    out.mkdir(parents=True, exist_ok=True)
+    f.write_text(json.dumps(sp, ensure_ascii=False, indent=2), encoding="utf-8")
+    return sp
+
+
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(description="Бэктест и отчёт о качестве")
+    """Внутренний конвейер оценки на датасете организаторов.
+
+    1. ``split``     — разделить компании на dev / holdout (``core/reports/split.json``);
+    2. ``calibrate`` — бэктест dev-компаний «сырой» моделью, подбор множителя интервалов
+                       (``core/reports/calibration.json``); его вносят в ``schema.INTERVAL_SCALE``;
+    3. ``final``     — бэктест holdout-компаний в продуктовой конфигурации → ``metrics.json``
+                       (формат контракта), ``metrics.md``, ``errors.png``, ``metrics_detail.json``;
+    4. ``rebuild``   — пересобрать файлы отчёта из ``metrics_detail.json``.
+    """
+    from .evaluate import run, summarize, write_report
+    from .schema import INTERVAL_SCALE
+
+    ap = argparse.ArgumentParser(description="Оценка качества: dev/holdout")
+    ap.add_argument("step_name", choices=["split", "calibrate", "final", "rebuild"])
     ap.add_argument("--data", default="data/raw", help="папка с statements/ и companies.csv")
-    ap.add_argument("--companies", type=int, default=30)
-    ap.add_argument("--ids", default=None, help="список company_id через запятую (вместо выборки)")
     ap.add_argument("--origins", type=int, default=8)
     ap.add_argument("--step", type=int, default=21)
-    ap.add_argument("--horizon", type=int, default=30)
     ap.add_argument("--sims", type=int, default=500)
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--workers", type=int, default=max(1, (os.cpu_count() or 2)))
     ap.add_argument("--out", default=str(Path(__file__).resolve().parents[1] / "reports"))
-    ap.add_argument("--demo-company", default="C001", help="компания для ряда backtest в metrics.json")
-    ap.add_argument("--rebuild", action="store_true", help="пересобрать отчёт из metrics_detail.json без прогона")
+    ap.add_argument("--demo-company", default=None, help="holdout-компания для ряда backtest в metrics.json")
     a = ap.parse_args(argv)
+    data, out = Path(a.data), Path(a.out)
+    cache = out / "_cache" / "evaluate"
 
-    data = Path(a.data)
-    out = Path(a.out)
-    if a.rebuild:
+    if a.step_name == "rebuild":
         detail = json.loads((out / "metrics_detail.json").read_text(encoding="utf-8"))
-        detail["meta"].setdefault("demo_company", a.demo_company)
         write_all(detail, out, data)
         print(metrics_table(detail["models"]).to_string())
         return 0
-    statements = data / "statements"
-    cids = a.ids.split(",") if a.ids else pick_companies(data / "companies.csv", a.companies, a.seed)
-    kw = {"horizon": a.horizon, "n_origins": a.origins, "step": a.step, "n_sims": a.sims, "seed": a.seed,
-          "models": DEFAULT_MODELS}
+
+    sp = _load_split(out, data, a.seed)
+    if a.step_name == "split":
+        print(f"dev: {len(sp['dev'])}, holdout: {len(sp['holdout'])} → {out / 'split.json'}")
+        return 0
+
+    group = "dev" if a.step_name == "calibrate" else "holdout"
+    comps = [(c, str(data / "statements" / f"{c}.csv")) for c in sp[group]]
+    scale = 1.0 if group == "dev" else INTERVAL_SCALE
     t0 = time.time()
-    # результат по каждой компании сохраняется сразу: обрыв прогона не теряет прогресс,
-    # повторный запуск с теми же настройками досчитывает только недостающее
-    cache = out / "_cache"
-    cache.mkdir(parents=True, exist_ok=True)
-    tag = f"h{a.horizon}_o{a.origins}_s{a.step}_n{a.sims}_seed{a.seed}"
-    results: list[dict[str, Any]] = []
-    todo = []
-    for c in cids:
-        f = cache / f"{c}_{tag}.json"
-        if f.exists():
-            results.append(json.loads(f.read_text(encoding="utf-8")))
-        else:
-            todo.append((str(statements / f"{c}.csv"), c, kw))
-    print(f"из кэша: {len(results)}, считать: {len(todo)}", flush=True)
-    with ProcessPoolExecutor(max_workers=a.workers) as ex:
-        futs = {ex.submit(_one, j): j[1] for j in todo}
-        for fut in as_completed(futs):
-            r = fut.result()
-            results.append(r)
-            if not r.get("error"):
-                (cache / f"{r['company_id']}_{tag}.json").write_text(json.dumps(r), encoding="utf-8")
-            print(f"готово {len(results)}/{len(cids)}: {r['company_id']} ({time.time() - t0:.0f} с)", flush=True)
-    failed = [r["company_id"] for r in results if r.get("error")]
-    met = aggregate([r for r in results if not r.get("error")])
-    cat = categorization_report(statements, cids)
-    out.mkdir(parents=True, exist_ok=True)
-    meta = {"generated_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(), "n_companies": len(cids),
-            "companies": cids, "failed": failed, "horizon": a.horizon, "n_origins": a.origins, "step": a.step,
-            "n_sims": a.sims, "seed": a.seed, "runtime_sec": round(time.time() - t0, 1), "demo_company": a.demo_company}
+    results = run(comps, workers=a.workers, cache=cache, origins=a.origins, step=a.step, sims=a.sims, seed=a.seed,
+                  interval_scale=scale)
+    wall = time.time() - t0
+    summary = summarize(results, wall)
+    meta = {"generated_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(), "group": group,
+            "n_companies": len(comps), "companies": [c for c, _ in comps], "horizon": 30, "n_origins": a.origins,
+            "step": a.step, "n_sims": a.sims, "seed": a.seed, "interval_scale": scale, "workers": a.workers,
+            "runtime_sec": round(wall, 1), "failed": summary["backtest_failed"]}
+    write_report(summary, out, group, {**meta, "origins": a.origins})
+
+    if group == "dev":
+        ok = [r for r in results if not r.get("error")]
+        from .backtest import _coverage_with_scale, calibrate_on
+        cal = calibrate_interval_scale(ok, "hybrid")
+        k_dev = calibrate_on(ok, "hybrid")
+        cal_all = {"k": k_dev, "source": "dev", "n_dev_companies": len(comps),
+                   "dev_coverage_before": _coverage_with_scale(ok, 1.0),
+                   "dev_coverage_after": _coverage_with_scale(ok, k_dev),
+                   "time_split_check": cal}
+        (out / "calibration.json").write_text(json.dumps(cal_all, ensure_ascii=False, indent=2), encoding="utf-8")
+        print(metrics_table(summary["models"]).to_string())
+        print(f"\nk = {cal_all['k']} (покрытие dev {cal_all['dev_coverage_before']} → {cal_all['dev_coverage_after']}); "
+              f"внесите его в schema.INTERVAL_SCALE. Время: {summary['speed']}")
+        return 0
+
+    ok = [r for r in results if not r.get("error")]
+    cal = json.loads((out / "calibration.json").read_text(encoding="utf-8")) if (out / "calibration.json").exists() else {}
+    cat = categorization_report(data / "statements", [c for c, _ in comps])
     per_company = {}
-    for r in results:
-        if r.get("error"):
-            continue
+    for r in ok:
         m1 = aggregate([r])
         per_company[r["company_id"]] = {k: {"mae_pct_turnover": v["balance_mae_pct_turnover"],
-                                            "coverage": v["coverage_p10_p90"]}
-                                        for k, v in m1.items() if not k.startswith("_")}
-    ok = [r for r in results if not r.get("error")]
-    calib = {m: calibrate_interval_scale(ok, m) for m in ("naive", "ets", "hybrid")}
-    write_all({"meta": meta, "models": met, "categorization": cat, "per_company": per_company,
-               "calibration": calib}, out, data)
-    print(metrics_table(met).to_string())
-    print(f"\nСохранено в {out} за {meta['runtime_sec']} с; ошибки: {failed or 'нет'}")
+                                            "coverage": v["coverage_p10_p90"]} for k, v in m1.items() if not k.startswith("_")}
+    demo = a.demo_company or next((c for c in ("C001",) if c in sp["holdout"]), None) or \
+        max(ok, key=lambda r: len(r["records"].get("hybrid", [])))["company_id"]
+    meta.update(demo_company=demo, split={"dev": len(sp["dev"]), "holdout": len(sp["holdout"]), "rule": sp["rule"]},
+                speed=summary["speed"])
+    write_all({"meta": meta, "models": summary["models"], "categorization": cat, "per_company": per_company,
+               "calibration": cal}, out, data)
+    print(metrics_table(summary["models"]).to_string())
+    print(f"\nholdout: {len(comps)} компаний, {summary['speed']}; сбои: {summary['backtest_failed'] or 'нет'}")
     return 0
 
 

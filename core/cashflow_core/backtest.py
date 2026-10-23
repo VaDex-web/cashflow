@@ -141,7 +141,8 @@ def _recurring_hits(tx: pd.DataFrame, origin: date, H: int, state: Any) -> dict[
 
 def backtest(df: Any, *, horizon: int = 30, n_origins: int = 8, step: int = 21, min_train: int = 180,
              models: Iterable[str] = DEFAULT_MODELS, n_sims: int = 500, seed: int = 42, threshold: float = 0.0,
-             company_id: str | None = None, hybrid_model: str = "auto", recurring_check: bool = True) -> dict[str, Any]:
+             company_id: str | None = None, hybrid_model: str = "auto", recurring_check: bool = True,
+             interval_scale: float = 1.0) -> dict[str, Any]:
     """Rolling-origin бэктест одной компании.
 
     Returns:
@@ -164,6 +165,9 @@ def backtest(df: Any, *, horizon: int = 30, n_origins: int = 8, step: int = 21, 
     rescue_daily = resc.groupby(pd.to_datetime(resc["date"]))["amount"].sum()
     H = int(horizon)
     origins = _origins(daily, H, n_origins, step, min_train)
+    if not origins and len(daily) >= 45 + H:
+        # короткая история: до 3 отсечек с шагом 14 дней и минимум 45 днями обучения (упрощённый режим модели)
+        origins = _origins(daily, H, min(3, n_origins), 14, 45)
     records: dict[str, list[dict[str, Any]]] = {m: [] for m in models}
     rec_stats = {"n": 0, "hits": 0, "amount_ape": []}
     for o in origins:
@@ -173,11 +177,11 @@ def backtest(df: Any, *, horizon: int = 30, n_origins: int = 8, step: int = 21, 
         for m in models:
             t0 = time.time()
             try:
-                # бэктест меряет «сырую» модель (масштаб 1.0); калибровка оценивается отдельно
+                # interval_scale: 1.0 — «сырая» модель (для калибровки на dev), иначе — продуктовая настройка
                 if m == "hybrid":
-                    fc = _hybrid(tx, o, H, n_sims, seed, hybrid_model)
+                    fc = _hybrid(tx, o, H, n_sims, seed, hybrid_model, interval_scale)
                 elif m.startswith("hybrid_"):
-                    fc = _hybrid(tx, o, H, n_sims, seed, m.split("_", 1)[1])
+                    fc = _hybrid(tx, o, H, n_sims, seed, m.split("_", 1)[1], interval_scale)
                 else:
                     fc = _baseline(daily.loc[:pd.Timestamp(o)], m, H, n_sims, seed, act["b0"], rescue_daily)
             except Exception as exc:  # noqa: BLE001
@@ -339,6 +343,25 @@ def calibrate_interval_scale(results: list[dict[str, Any]], model: str = "hybrid
             "coverage_early_before": round(cover(early, 1.0), 4), "coverage_early_after": round(cover(early, best), 4),
             "coverage_late_before": round(cover(late, 1.0), 4), "coverage_late_after": round(cover(late, best), 4),
             "n_early": len(early), "n_late": len(late), "exact": exact}
+
+
+def _coverage_with_scale(results: list[dict[str, Any]], k: float, model: str = "hybrid") -> float:
+    """Покрытие P10–P90 после растяжения интервала в k раз вокруг медианы (точно, по записанным границам)."""
+    hits = tot = 0
+    for r in results:
+        for x in r["records"].get(model, []):
+            e = np.array(x["err"])
+            lo = np.array(x.get("lo_off", np.array(x["width"]) / 2))
+            hi = np.array(x.get("hi_off", np.array(x["width"]) / 2))
+            hits += int(((e <= k * lo) & (-e <= k * hi)).sum())
+            tot += len(e)
+    return round(hits / max(tot, 1), 4)
+
+
+def calibrate_on(results: list[dict[str, Any]], model: str = "hybrid", target: float = 0.8) -> float:
+    """Подобрать k по всем отсечкам переданных (dev) компаний."""
+    grid = np.round(np.arange(0.8, 3.01, 0.05), 2)
+    return float(min(grid, key=lambda k: abs(_coverage_with_scale(results, k, model) - target)))
 
 
 def compare_models(df: Any, **kwargs: Any) -> pd.DataFrame:
