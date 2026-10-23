@@ -78,6 +78,7 @@ const realApi = {
   recurring: (id: string) => request<Recurring[]>(`/companies/${id}/recurring`),
   events: (id: string) => request<CashEvent[]>(`/companies/${id}/events`),
   addEvent: (id: string, ev: NewCashEvent) => request<CashEvent>(`/companies/${id}/events`, json(ev)),
+  parseEvent: (id: string, text: string) => request<{ event: NewCashEvent; understood: string }>(`/companies/${id}/events/parse`, json({ text })),
   runScenario: (id: string, sc: Scenario) => request<ScenarioResult>(`/companies/${id}/scenarios/run`, json(sc)),
   planFact: (id: string) => request<PlanFact>(`/companies/${id}/plan-fact`),
   sync: (id: string, name: IntegrationName) => request<SyncResponse>(`/companies/${id}/integrations/${name}/sync`, { method: 'POST' }),

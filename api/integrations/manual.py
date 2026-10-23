@@ -63,7 +63,7 @@ def _date(text: str, today: date, direction: str) -> tuple[date, str]:
         return today + timedelta(days=2), "послезавтра"
     if "завтра" in t:
         return today + timedelta(days=1), "завтра"
-    m = re.search(r"через\s+(\d+)?\s*(дн|день|недел|месяц)", t)
+    m = re.search(r"через\s+(\d+)?\s*(дн|день|недел|месяц)[а-яё]*", t)
     if m:
         n = int(m.group(1) or 1)
         k = {"дн": 1, "ден": 1, "нед": 7, "мес": 30}[m.group(2)[:3] if m.group(2)[:3] in ("нед", "мес") else "дн"]

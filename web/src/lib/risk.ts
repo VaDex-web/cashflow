@@ -28,7 +28,8 @@ export function mainRisk(risks: Risk[]): Risk | undefined {
     kind[riskKind(a)] - kind[riskKind(b)] || sev[a.severity] - sev[b.severity] || a.date.localeCompare(b.date))[0]
 }
 
-/** Короткое описание суммы риска простыми словами */
+/** Короткое описание суммы риска простыми словами. ``main`` пустой — сумму в заголовок не выносим:
+ * ожидаемый остаток выше нуля, нехватка только в неблагоприятных вариантах. */
 export function shortfallText(r: Risk, daily: DailyPoint[], comfort?: number): { main: string; sub?: string } {
   if (riskKind(r) === 'below_comfort') {
     return {
@@ -44,7 +45,7 @@ export function shortfallText(r: Risk, daily: DailyPoint[], comfort?: number): {
     }
   }
   return {
-    main: `до ${fmtRub(r.shortfall_amount)}`,
-    sub: 'Обычно денег хватает — нехватка возможна, если поступления задержатся или окажутся ниже обычного.',
+    main: '',
+    sub: `Обычно денег хватает. Если поступления задержатся или окажутся ниже обычного, может не хватить до ${fmtRub(r.shortfall_amount)}.`,
   }
 }

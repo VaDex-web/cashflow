@@ -73,6 +73,10 @@ export const mockApi = {
     getEvents().push(created)
     return created
   },
+  async parseEvent(_id: string, _text: string): Promise<{ event: NewCashEvent; understood: string }> {
+    await delay()
+    throw new Error('Разбор фразы работает только с сервером — заполните поля ниже')
+  },
   async runScenario(id: string, sc: Scenario): Promise<ScenarioResult> {
     await delay(600)
     const base = await mockApi.forecast(id)

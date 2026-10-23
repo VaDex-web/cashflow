@@ -5,7 +5,7 @@ import { Empty, ErrorBox, Loading, SourceBadge } from '../components/ui'
 import { fmtDateTime, fmtDayWeek, fmtRub, toISO } from '../lib/format'
 import { useSession } from '../lib/session'
 import { useAsync } from '../lib/useAsync'
-import type { CashEvent, Direction, EventStatus, EventType, IntegrationName } from '../types'
+import type { CashEvent, Direction, EventStatus, EventType, IntegrationName, NewCashEvent } from '../types'
 import { NoCompany } from './Dashboard'
 
 const INTEGRATIONS: { name: IntegrationName; icon: string; title: string; text: string }[] = [
@@ -31,7 +31,7 @@ const TEMPLATES: { label: string; direction: Direction; type: EventType; note: s
 export function Events() {
   const { companyId } = useSession()
   const ev = useAsync(() => (companyId ? api.events(companyId) : Promise.resolve([])), [companyId])
-  const [synced, setSynced] = useState<Record<string, { at: string; added?: number } | 'busy' | { error: string }>>({})
+  const [synced, setSynced] = useState<Record<string, { at: string; added?: number; message?: string } | 'busy' | { error: string }>>({})
   const [filter, setFilter] = useState<'upcoming' | 'all'>('upcoming')
 
   if (!companyId) return <NoCompany />
@@ -40,7 +40,7 @@ export function Events() {
     setSynced((s) => ({ ...s, [name]: 'busy' }))
     try {
       const r = await api.sync(companyId!, name)
-      setSynced((s) => ({ ...s, [name]: { at: r.synced_at ?? new Date().toISOString(), added: r.events_added } }))
+      setSynced((s) => ({ ...s, [name]: { at: r.synced_at ?? new Date().toISOString(), added: r.events_added, message: r.message } }))
       ev.reload()
     } catch (e) {
       setSynced((s) => ({ ...s, [name]: { error: e instanceof Error ? e.message : String(e) } }))
@@ -68,7 +68,10 @@ export function Events() {
               <div className="row" style={{ gap: 8 }}><span style={{ fontSize: 22 }}>{i.icon}</span><h3>{i.title}</h3></div>
               <p className="small muted">{i.text}</p>
               {st && st !== 'busy' && 'at' in st && (
-                <div className="tiny" style={{ color: 'var(--ok)' }}>✓ Обновлено {fmtDateTime(st.at)}{st.added != null && ` · новых событий: ${st.added}`}</div>
+                <>
+                  <div className="tiny" style={{ color: 'var(--ok)' }}>✓ Обновлено {fmtDateTime(st.at)}{st.added != null && ` · новых событий: ${st.added}`}</div>
+                  {st.message && <div className="tiny">{st.message}</div>}
+                </>
               )}
               {st && st !== 'busy' && 'error' in st && <div className="tiny" style={{ color: 'var(--red)' }}>{st.error}</div>}
               <button className="btn btn-sm btn-ghost" onClick={() => sync(i.name)} disabled={st === 'busy'} style={{ justifySelf: 'start' }}>
@@ -166,6 +169,8 @@ function ManualForm({ companyId, onAdded }: { companyId: string; onAdded(): void
     <form className="card" onSubmit={submit} style={{ display: 'grid', gap: 12 }}>
       <h2>Добавить платёж вручную</h2>
       <p className="small muted">Знаете о платеже, которого нет в 1С? Добавьте — и прогноз его учтёт.</p>
+      <PhraseInput companyId={companyId} onAdded={onAdded} />
+      <div className="tiny" style={{ textAlign: 'center' }}>или заполните поля</div>
       <div className="row" style={{ gap: 6 }}>
         {TEMPLATES.map((t) => (
           <button type="button" key={t.label} className="btn btn-sm btn-ghost" onClick={() => applyTemplate(t)}>{t.label}</button>
@@ -184,5 +189,62 @@ function ManualForm({ companyId, onAdded }: { companyId: string; onAdded(): void
       {msg && <div className={`notice ${msg.ok ? 'notice-info' : 'notice-err'}`}>{msg.text}</div>}
       <button className="btn btn-lime" disabled={busy}>{busy ? 'Сохраняем…' : 'Добавить платёж'}</button>
     </form>
+  )
+}
+
+/** Платёж обычной фразой: сервер разбирает её, человек видит «как поняли» и подтверждает */
+function PhraseInput({ companyId, onAdded }: { companyId: string; onAdded(): void }) {
+  const [text, setText] = useState('')
+  const [draft, setDraft] = useState<{ event: NewCashEvent; understood: string } | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
+
+  async function parse() {
+    if (text.trim().length < 3) return
+    setBusy(true)
+    setMsg(null)
+    try {
+      setDraft(await api.parseEvent(companyId, text.trim()))
+    } catch (err) {
+      setDraft(null)
+      setMsg({ ok: false, text: err instanceof Error ? err.message : String(err) })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function save() {
+    if (!draft) return
+    setBusy(true)
+    try {
+      const created = await api.addEvent(companyId, draft.event)
+      setMsg({ ok: true, text: `Добавлено: ${created.direction === 'in' ? '+' : '−'}${fmtRub(created.amount)} на ${fmtDayWeek(created.date)}. Прогноз учтёт этот платёж.` })
+      setDraft(null)
+      setText('')
+      onAdded()
+    } catch (err) {
+      setMsg({ ok: false, text: err instanceof Error ? err.message : String(err) })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div style={{ display: 'grid', gap: 8 }}>
+      {/* не <form>: блок стоит внутри формы ручного ввода */}
+      <div className="row" style={{ gap: 8, flexWrap: 'nowrap' }}>
+        <input className="input" placeholder="Например: клиент обещал заплатить 300 000 ₽ 20-го" value={text}
+          onChange={(e) => { setText(e.target.value); setDraft(null) }} aria-label="Платёж обычной фразой"
+          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void parse() } }} />
+        <button type="button" className="btn btn-ghost" onClick={() => void parse()} disabled={busy || text.trim().length < 3}>Разобрать</button>
+      </div>
+      {draft && (
+        <div className="notice notice-info" style={{ alignItems: 'center' }}>
+          <span style={{ flex: 1 }}>Поняли так: <b>{draft.understood}</b></span>
+          <button type="button" className="btn btn-sm btn-lime" onClick={save} disabled={busy}>Добавить</button>
+        </div>
+      )}
+      {msg && <div className={`notice ${msg.ok ? 'notice-info' : 'notice-err'}`}>{msg.text}</div>}
+    </div>
   )
 }

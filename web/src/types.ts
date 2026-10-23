@@ -118,6 +118,7 @@ export interface SyncResponse {
   status: string
   events_added?: number
   synced_at?: string
+  message?: string
 }
 
 // core/reports/metrics.json

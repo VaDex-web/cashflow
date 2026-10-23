@@ -16,7 +16,9 @@ export function AlertsList({ risks, daily = [], comfort }: { risks: Risk[]; dail
           <div className="row" style={{ marginTop: 6, gap: 6 }}>
             {riskKind(r) === 'below_comfort'
               ? <span>Останется <b>{shortfallText(r, daily, comfort).main}</b></span>
-              : <span>Может не хватить <b className="num">{shortfallText(r, daily, comfort).main}</b></span>}
+              : shortfallText(r, daily, comfort).main
+                ? <span>Может не хватить <b className="num">{shortfallText(r, daily, comfort).main}</b></span>
+                : <span>Денег может не хватить</span>}
             <span className="muted">· вероятность {fmtPct(r.probability)}</span>
             <Hint>Вероятность — доля смоделированных вариантов будущего, в которых в этот день денег на счёте {riskKind(r) === 'below_comfort' ? 'меньше комфортного минимума' : 'меньше нуля'}.</Hint>
           </div>

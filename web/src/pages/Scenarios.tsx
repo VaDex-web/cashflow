@@ -24,6 +24,7 @@ function firstGap(f: ForecastResult) {
 export function Scenarios() {
   const { companyId } = useSession()
   const events = useAsync(() => (companyId ? api.events(companyId) : Promise.resolve([])), [companyId])
+  const recurring = useAsync(() => (companyId ? api.recurring(companyId) : Promise.resolve([])), [companyId])
   const [type, setType] = useState<ScenarioType>('client_delay')
   const [weeks, setWeeks] = useState(3)
   const [percent, setPercent] = useState(20)
@@ -35,11 +36,23 @@ export function Scenarios() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const inflows = useMemo(
-    () => (events.data ?? []).filter((e) => e.direction === 'in' && e.status !== 'paid').sort((a, b) => b.amount - a.amount),
-    [events.data],
-  )
-  const clientId = client || inflows[0]?.id || ''
+  // Кто может заплатить позже: ожидаемые поступления из источников и регулярные клиенты из выписки
+  const clients = useMemo(() => {
+    const out: { value: string; label: string; amount: number }[] = []
+    const seen = new Set<string>()
+    for (const e of (events.data ?? []).filter((x) => x.direction === 'in' && x.status !== 'paid')) {
+      out.push({ value: e.id, label: `${e.counterparty ?? e.note ?? e.id} — ${fmtRub(e.amount)}, ${fmtDay(e.date)}`, amount: e.amount })
+      if (e.counterparty) seen.add(e.counterparty.toLowerCase())
+    }
+    for (const r of (recurring.data ?? []).filter((x) => x.direction === 'in')) {
+      const name = recurringCounterparty(r.name)
+      if (!name || seen.has(name.toLowerCase())) continue
+      seen.add(name.toLowerCase())
+      out.push({ value: name, label: `${name} — обычно ${fmtRub(r.amount_avg)}, следующий платёж ${fmtDay(r.next_date)}`, amount: r.amount_avg })
+    }
+    return out.sort((a, b) => b.amount - a.amount)
+  }, [events.data, recurring.data])
+  const clientId = client || clients[0]?.value || ''
   const defaultDate = useMemo(() => { const d = new Date(); d.setDate(d.getDate() + 7); return toISO(d) }, [])
 
   if (!companyId) return <NoCompany />
@@ -91,10 +104,8 @@ export function Scenarios() {
             <>
               <label className="field" style={{ minWidth: 280, flex: 1 }}>Какой платёж задержится
                 <select className="input" value={clientId} onChange={(e) => setClient(e.target.value)}>
-                  {inflows.length === 0 && <option value="">Нет ожидаемых поступлений</option>}
-                  {inflows.map((e) => (
-                    <option key={e.id} value={e.id}>{e.counterparty ?? e.note ?? e.id} — {fmtRub(e.amount)}, {fmtDay(e.date)}</option>
-                  ))}
+                  {clients.length === 0 && <option value="">Нет ожидаемых поступлений от клиентов</option>}
+                  {clients.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
                 </select>
               </label>
               <Slider label="На сколько недель" value={weeks} min={2} max={4} step={1} onChange={setWeeks} fmt={(v) => `${v} нед.`} />
@@ -140,6 +151,12 @@ function Slider({ label, value, min, max, step, onChange, fmt }: { label: string
   )
 }
 
+/** «Выручка от клиентов — АО «ДонТрансЛогистика» (~26-го числа)» → «АО «ДонТрансЛогистика»» */
+function recurringCounterparty(name: string): string {
+  const m = name.split(' — ')[1]
+  return (m ?? '').replace(/\s*\(~?[^)]*\)\s*$/, '').trim()
+}
+
 function ScenarioView({ res }: { res: ScenarioResult }) {
   const b = firstGap(res.base)
   // Фраза считается по ожидаемому остатку — так же, как нарисован график (delta ядра может считаться
@@ -155,13 +172,18 @@ function ScenarioView({ res }: { res: ScenarioResult }) {
     text = b ? 'В этом случае разрыва не будет — остаток не уходит ниже нуля.' : 'Даже в этом случае денег хватит: остаток не уходит ниже нуля.'
   } else if (!b) {
     tone = 'bad'
-    text = `Появится разрыв: ${fmtDay(s.date)} не хватит ${fmtRub(s.max)}. Сейчас денег хватает.`
+    text = `Появится разрыв: ${fmtDay(s.date)} не хватит ${fmtRub(s.max)}. В обычном прогнозе ожидаемый остаток не уходит ниже нуля.`
   } else {
     const earlier = parseDate(s.date) < parseDate(b.date)
-    tone = earlier || s.max > b.max + 10_000 ? 'bad' : 'same'
-    text = earlier
-      ? `Разрыв сдвинется с ${fmtDay(b.date)} на ${fmtDay(s.date)}, не хватит ${fmtRub(s.max)} вместо ${fmtRub(b.max)}.`
-      : `Разрыв останется ${fmtDay(s.date)}, но не хватит уже ${fmtRub(s.max)} вместо ${fmtRub(b.max)}.`
+    const later = parseDate(s.date) > parseDate(b.date)
+    const worse = s.max > b.max * 1.03 + 10_000
+    const better = s.max < b.max * 0.97 - 10_000
+    tone = earlier || worse ? 'bad' : better || later ? 'ok' : 'same'
+    const amounts = worse || better ? `не хватит ${fmtRub(s.max)} вместо ${fmtRub(b.max)}` : `не хватит примерно столько же — ${fmtRub(s.max)}`
+    text = earlier || later
+      ? `Разрыв сдвинется с ${fmtDay(b.date)} на ${fmtDay(s.date)}, ${amounts}.`
+      : worse ? `Разрыв останется ${fmtDay(s.date)}, но не хватит уже ${fmtRub(s.max)} вместо ${fmtRub(b.max)}.`
+        : `Разрыв останется ${fmtDay(s.date)}, ${amounts}.`
   }
   const color = tone === 'bad' ? 'var(--red)' : tone === 'ok' ? 'var(--ok)' : 'var(--amber)'
   const bg = tone === 'bad' ? 'var(--red-bg)' : tone === 'ok' ? 'var(--ok-bg)' : 'var(--amber-bg)'

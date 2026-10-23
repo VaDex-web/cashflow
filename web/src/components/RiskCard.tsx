@@ -38,8 +38,8 @@ export function RiskCard({ fc }: { fc: ForecastResult }) {
             <>
               <h1 style={{ fontSize: 'clamp(22px, 3vw, 32px)', marginTop: 6, lineHeight: 1.25 }}>
                 {cap(inDays(daysBetween(today, r.date)))}, {fmtDay(r.date)},{' '}
-                {kind === 'below_comfort' ? 'на счёте может остаться' : 'может не хватить'}{' '}
-                <span style={{ color: tone.dot, whiteSpace: 'nowrap' }}>{amount!.main}</span>
+                {kind === 'below_comfort' ? 'на счёте может остаться' : amount!.main ? 'может не хватить' : 'денег может не хватить'}{' '}
+                {amount!.main && <span style={{ color: tone.dot, whiteSpace: 'nowrap' }}>{amount!.main}</span>}
               </h1>
               {amount!.sub && <p className="muted" style={{ marginTop: 6 }}>{amount!.sub}</p>}
               <div className="row" style={{ marginTop: 10, gap: 8 }}>
