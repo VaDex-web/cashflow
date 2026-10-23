@@ -1,5 +1,5 @@
-// Типы строго по docs/contract.md. Поля с пометкой [proposal] — предложения, ещё не согласованы,
-// поэтому необязательные: интерфейс должен работать и без них.
+// Типы строго по docs/contract.md. Поля с пометкой [optional] ядро может не отдавать —
+// интерфейс должен работать и без них.
 
 export type Direction = 'in' | 'out'
 export type Severity = 'low' | 'medium' | 'high'
@@ -35,7 +35,7 @@ export interface DailyPoint {
   balance_p50: number
   balance_low: number
   balance_high: number
-  events?: string[] // [proposal]
+  events?: string[] // [optional]
 }
 
 export interface Risk {
@@ -64,9 +64,9 @@ export interface ForecastResult {
   risks: Risk[]
   recurring: Recurring[]
   sources_used: string[]
-  warnings?: string[] // [proposal]
-  current_balance?: number // [proposal]
-  as_of?: string // [proposal]
+  warnings?: string[] // [optional]
+  current_balance?: number // [optional]
+  as_of?: string // [optional]
 }
 
 export interface ScenarioResult {
@@ -97,7 +97,7 @@ export interface Transaction {
   category_confidence?: number
 }
 
-// [proposal] ответ /categories
+// ответ /categories
 export interface CategorySummary {
   category: string
   direction: Direction
@@ -118,7 +118,7 @@ export interface SyncResponse {
   synced_at?: string
 }
 
-// [proposal] core/reports/metrics.json
+// core/reports/metrics.json
 export interface ModelMetrics {
   name: string
   mae: number

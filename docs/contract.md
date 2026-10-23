@@ -4,7 +4,7 @@
 **Любое изменение контракта — только после согласования с человеком.**
 Примеры ответов: [`docs/mock/*.json`](mock/) — строго по схемам ниже.
 
-Разделы, помеченные **[ПРЕДЛОЖЕНИЕ]**, — не из исходного ТЗ, а дополнения, которые нужны интерфейсу. Они ждут согласования; до согласования web/ трактует их как необязательные (если поля нет — не падает).
+Дополнения к исходному ТЗ (необязательные поля ForecastResult, ответы `/auth/login`, `GET /companies`, `/alerts`, `/categories`, `/integrations/.../sync`, формат ошибок, `metrics.json`) согласованы 23.10.2026.
 
 ---
 
@@ -100,7 +100,7 @@
 - `balance_p50` — ожидаемый остаток; `balance_low` / `balance_high` — границы возможного диапазона.
 - `probability` ∈ [0, 1].
 
-**[ПРЕДЛОЖЕНИЕ] необязательные поля ForecastResult:**
+**Необязательные поля ForecastResult** (ядро отдаёт, если может; web/ работает и без них):
 - `warnings: string[]` — предупреждения о качестве данных простым языком, напр. `"Данных мало (42 дня), прогноз приблизительный"`.
 - `current_balance: number`, `as_of: "YYYY-MM-DD"` — фактический остаток и дата последней операции (для карточки «сейчас на счёте»).
 - `daily[].events: string[]` — id событий (Event) на эту дату, для маркеров на графике.
@@ -148,22 +148,22 @@ compare_models(df) -> таблица метрик
 
 | метод | путь | тело / параметры | ответ |
 |---|---|---|---|
-| POST | `/auth/login` | `{username, password}` | **[ПРЕДЛОЖЕНИЕ]** `{access_token, token_type: "bearer"}` |
+| POST | `/auth/login` | `{username, password}` | `{access_token, token_type: "bearer"}` |
 | GET | `/health` | — | `{status: "ok"}` |
 | POST | `/companies` | multipart, поле `file` (CSV) | `{company_id}` |
-| GET | `/companies` | — | **[ПРЕДЛОЖЕНИЕ]** список из `companies.csv`: `[{company_id, company_name, legal_form, industry, first_operation_date, last_operation_date, operations_count}]` — чтобы в демо выбрать компанию из датасета без загрузки файла |
+| GET | `/companies` | — | список из `companies.csv`: `[{company_id, company_name, legal_form, industry, first_operation_date, last_operation_date, operations_count}]` — чтобы в демо выбрать компанию из датасета без загрузки файла |
 | GET | `/companies/{id}/forecast?horizon=30` | — | `ForecastResult` |
-| GET | `/companies/{id}/alerts` | — | **[ПРЕДЛОЖЕНИЕ]** `ForecastResult.risks[]` |
-| GET | `/companies/{id}/categories` | — | **[ПРЕДЛОЖЕНИЕ]** см. ниже |
+| GET | `/companies/{id}/alerts` | — | `ForecastResult.risks[]` |
+| GET | `/companies/{id}/categories` | — | см. ниже |
 | GET | `/companies/{id}/recurring` | — | `ForecastResult.recurring[]` |
 | GET | `/companies/{id}/events` | — | `Event[]` |
 | POST | `/companies/{id}/events` | `Event` без `id` | `Event` (с `id`) |
 | POST | `/companies/{id}/scenarios/run` | `Scenario` | `ScenarioResult` |
 | GET | `/companies/{id}/plan-fact` | — | `PlanFact` |
-| POST | `/companies/{id}/integrations/{name}/sync` | name: `bank` \| `1c` \| `tax_calendar` \| `registry` | **[ПРЕДЛОЖЕНИЕ]** `{name, status: "ok", events_added: n, synced_at}` |
+| POST | `/companies/{id}/integrations/{name}/sync` | name: `bank` \| `1c` \| `tax_calendar` \| `registry` | `{name, status: "ok", events_added: n, synced_at}` |
 | POST | `/companies/{id}/transactions` | `[строки выписки]` | `ForecastResult` (через `update_forecast`) |
 
-**[ПРЕДЛОЖЕНИЕ] ответ `/categories`:**
+**Ответ `/categories`:**
 ```json
 {
   "summary": [ { "category": "Аренда", "direction": "out", "total": 0, "count": 0, "share": 0.0 } ],
@@ -176,11 +176,11 @@ compare_models(df) -> таблица метрик
 ```
 `share` — доля категории внутри своего направления (in / out).
 
-**[ПРЕДЛОЖЕНИЕ] ошибки:** `{"detail": "понятный текст на русском"}` с HTTP-кодом 4xx/5xx.
+**Ошибки:** `{"detail": "понятный текст на русском"}` с HTTP-кодом 4xx/5xx.
 
 ---
 
-## 5. [ПРЕДЛОЖЕНИЕ] Метрики качества (`core/reports/metrics.json`)
+## 5. Метрики качества (`core/reports/metrics.json`)
 
 ```json
 {
