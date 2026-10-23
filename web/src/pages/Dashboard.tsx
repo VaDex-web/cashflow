@@ -16,7 +16,12 @@ export function Dashboard() {
   if (!companyId) return <NoCompany />
 
   if (fc.loading && !fc.data) {
-    return <div className="grid"><Loading height={150} /><Loading height={380} /></div>
+    return (
+      <div className="grid">
+        <div className="notice notice-info"><span>⏳</span><span>Считаем прогноз: проигрываем тысячи вариантов ближайшего месяца. В первый раз это занимает до 20 секунд.</span></div>
+        <Loading height={150} /><Loading height={380} />
+      </div>
+    )
   }
   if (fc.error || !fc.data) return <ErrorBox message={fc.error ?? 'Нет данных'} onRetry={fc.reload} />
 

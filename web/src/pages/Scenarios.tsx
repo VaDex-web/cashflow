@@ -142,9 +142,9 @@ function Slider({ label, value, min, max, step, onChange, fmt }: { label: string
 
 function ScenarioView({ res }: { res: ScenarioResult }) {
   const b = firstGap(res.base)
-  const s = res.delta.first_gap_date
-    ? { date: res.delta.first_gap_date, max: res.delta.max_shortfall ?? firstGap(res.scenario)?.max ?? 0 }
-    : firstGap(res.scenario)
+  // Фраза считается по ожидаемому остатку — так же, как нарисован график (delta ядра может считаться
+  // от комфортного минимума, и тогда числа во фразе и на графике разошлись бы)
+  const s = firstGap(res.scenario)
   const today = forecastToday(res.base)
   const start = res.base.current_balance
 

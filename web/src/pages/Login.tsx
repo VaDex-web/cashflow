@@ -4,7 +4,7 @@ import { api, USE_MOCK } from '../api/client'
 import { useSession } from '../lib/session'
 
 export function Login() {
-  const { login, companyId } = useSession()
+  const { login, companyId, setCompany } = useSession()
   const nav = useNavigate()
   const [username, setUsername] = useState(import.meta.env.VITE_DEMO_USER ?? 'demo')
   const [password, setPassword] = useState(import.meta.env.VITE_DEMO_PASSWORD ?? 'demo')
@@ -18,7 +18,14 @@ export function Login() {
     try {
       const r = await api.login(username.trim(), password)
       login(r.access_token)
-      nav(companyId ? '/' : '/upload')
+      // У пользователя может уже быть своя компания (API: один пользователь = одна компания)
+      let company = companyId
+      try {
+        const me = await api.me()
+        if (me.company_id) company = me.company_id
+      } catch { /* нет /me — работаем по сохранённой компании */ }
+      if (company) setCompany(company)
+      nav(company ? '/' : '/upload')
     } catch (err) {
       setError(err instanceof Error && 'status' in err && (err as { status: number }).status === 401
         ? 'Неверный логин или пароль'

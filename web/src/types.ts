@@ -92,7 +92,7 @@ export interface Transaction {
   counterparty_name: string
   counterparty_inn: string
   purpose: string
-  balance_eod: number
+  balance_eod: number | null
   category?: string
   category_confidence?: number
 }

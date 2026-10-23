@@ -66,6 +66,7 @@ const coreMetrics = import.meta.glob('../../../core/reports/metrics.json', { eag
 const realApi = {
   login: (username: string, password: string) => request<{ access_token: string; token_type: string }>('/auth/login', json({ username, password })),
   health: () => request<{ status: string }>('/health'),
+  me: () => request<{ username: string; company_id: string | null; company_name: string | null }>('/me'),
   uploadStatement: (file: File) => {
     const fd = new FormData()
     fd.append('file', file)
@@ -81,7 +82,11 @@ const realApi = {
   planFact: (id: string) => request<PlanFact>(`/companies/${id}/plan-fact`),
   sync: (id: string, name: IntegrationName) => request<SyncResponse>(`/companies/${id}/integrations/${name}/sync`, { method: 'POST' }),
   addTransactions: (id: string, rows: Partial<Transaction>[]) => request<ForecastResult>(`/companies/${id}/transactions`, json(rows)),
+  // Сначала GET /api/metrics (отдаёт core/reports/metrics.json), потом файл из сборки, потом мок
   metrics: async (): Promise<MetricsReport> => {
+    if (!USE_MOCK) {
+      try { return await request<MetricsReport>('/metrics') } catch { /* нет эндпоинта — берём файл */ }
+    }
     const v = Object.values(coreMetrics)[0] as MetricsReport | undefined
     return v ?? mockApi.metrics()
   },

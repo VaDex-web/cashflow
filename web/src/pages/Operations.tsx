@@ -132,7 +132,7 @@ export function Operations() {
                     <td className="r num" style={{ whiteSpace: 'nowrap', fontWeight: 600, color: t.direction === 'in' ? 'var(--ok)' : 'var(--text)' }}>
                       {t.direction === 'in' ? '+' : '−'}{fmtRub(t.amount, true)}
                     </td>
-                    <td className="r num muted" style={{ whiteSpace: 'nowrap', color: t.balance_eod < 0 ? 'var(--red)' : undefined }}>{fmtRub(t.balance_eod)}</td>
+                    <td className="r num muted" style={{ whiteSpace: 'nowrap', color: (t.balance_eod ?? 0) < 0 ? 'var(--red)' : undefined }}>{t.balance_eod != null ? fmtRub(t.balance_eod) : '—'}</td>
                   </tr>
                 ))}
               </tbody>

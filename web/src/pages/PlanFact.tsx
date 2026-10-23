@@ -14,7 +14,10 @@ function weekLabel(p: string) {
   const a = parseDate(p)
   const b = new Date(a)
   b.setDate(b.getDate() + 6)
-  return `${a.getDate()}–${b.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })}`
+  const end = b.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })
+  return a.getMonth() === b.getMonth()
+    ? `${a.getDate()}–${end}`
+    : `${a.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })} – ${end}`
 }
 
 export function PlanFact() {
@@ -36,6 +39,13 @@ export function PlanFact() {
     const fact = kind === 'in' ? r.actual_in : r.actual_out
     return { label: weekLabel(r.period), plan, fact, dev: plan ? (fact - plan) / plan : 0, row: r }
   })
+  // Неделя с почти нулевым планом даёт бессмысленные проценты — там сравниваем только рубли
+  const avgPlan = data.reduce((s, d) => s + d.plan, 0) / data.length
+  const tinyPlan = (d: { plan: number }) => d.plan < avgPlan * 0.25
+  const isBad = (d: { plan: number; fact: number; dev: number }) => {
+    const diff = kind === 'in' ? d.plan - d.fact : d.fact - d.plan
+    return tinyPlan(d) ? diff > avgPlan * 0.25 : diff > 0 && Math.abs(d.dev) > DEV_THRESHOLD
+  }
   const totalPlanIn = rows.reduce((s, r) => s + r.planned_in, 0)
   const totalFactIn = rows.reduce((s, r) => s + r.actual_in, 0)
   const totalPlanOut = rows.reduce((s, r) => s + r.planned_out, 0)
@@ -89,7 +99,7 @@ export function PlanFact() {
               <Bar dataKey="plan" name="План" fill="#c9d6cd" radius={[6, 6, 0, 0]} />
               <Bar dataKey="fact" name="Факт" radius={[6, 6, 0, 0]}>
                 {data.map((d) => {
-                  const bad = kind === 'in' ? d.dev < -DEV_THRESHOLD : d.dev > DEV_THRESHOLD
+                  const bad = isBad(d)
                   return <Cell key={d.label} fill={bad ? '#d23b3b' : '#11553f'} />
                 })}
               </Bar>
@@ -101,14 +111,14 @@ export function PlanFact() {
             <thead><tr><th>Неделя</th><th className="r">План</th><th className="r">Факт</th><th className="r">Разница</th></tr></thead>
             <tbody>
               {data.map((d) => {
-                const bad = kind === 'in' ? d.dev < -DEV_THRESHOLD : d.dev > DEV_THRESHOLD
+                const bad = isBad(d)
                 return (
                   <tr key={d.label} style={bad ? { background: 'var(--red-bg)' } : undefined}>
                     <td>{d.label}</td>
                     <td className="r">{fmtRub(d.plan)}</td>
                     <td className="r">{fmtRub(d.fact)}</td>
                     <td className="r" style={{ color: bad ? 'var(--red)' : 'var(--text-2)', fontWeight: bad ? 650 : 400 }}>
-                      {d.fact - d.plan >= 0 ? '+' : '−'}{fmtRub(Math.abs(d.fact - d.plan))} ({d.dev >= 0 ? '+' : ''}{fmtPct(d.dev)})
+                      {d.fact - d.plan >= 0 ? '+' : '−'}{fmtRub(Math.abs(d.fact - d.plan))}{!tinyPlan(d) && ` (${d.dev >= 0 ? '+' : '−'}${fmtPct(Math.abs(d.dev))})`}
                     </td>
                   </tr>
                 )

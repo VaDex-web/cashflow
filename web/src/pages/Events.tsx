@@ -101,7 +101,7 @@ export function Events() {
                       <td style={{ whiteSpace: 'nowrap' }}>{fmtDayWeek(e.date)}</td>
                       <td>
                         <div>{EVENT_ICON[e.type]} {e.counterparty ?? EVENT_LABEL[e.type]}</div>
-                        {e.note && <div className="tiny">{e.note}</div>}
+                        {e.note && <div className="tiny clamp-2" title={e.note}>{e.note}</div>}
                       </td>
                       <td className="r num" style={{ whiteSpace: 'nowrap', fontWeight: 600, color: e.direction === 'in' ? 'var(--ok)' : 'var(--text)' }}>
                         {e.direction === 'in' ? '+' : '−'}{fmtRub(e.amount)}
