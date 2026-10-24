@@ -7,7 +7,7 @@
 | `core/` | Python-пакет `cashflow_core`: загрузка выписки, категории, регулярные платежи, налоги, прогноз, риски, сценарии, бэктест — [README](core/README.md) |
 | `api/` | FastAPI: JWT, эндпоинты по контракту, интеграции-имитации, план-факт, тесты — [README](api/README.md) |
 | `web/` | интерфейс: React + Vite + TypeScript + Recharts — [README](web/README.md) |
-| `docs/` | [контракт](docs/contract.md), [архитектура](docs/architecture.md), [развёртывание](docs/deploy.md), [статус](docs/status.md), [аудит](docs/audit.md), [история демо](docs/demo_story.md), [сценарий выступления](docs/demo_script.md), [презентация](docs/presentation.pdf), скриншоты `docs/screens/` |
+| `docs/` | [контракт](docs/contract.md), [архитектура](docs/architecture.md), [развёртывание](docs/deploy.md), [статус](docs/status.md), [отчёт проверки](docs/verification_report.md), [аудит](docs/audit.md), [история демо](docs/demo_story.md), [сценарий выступления](docs/demo_script.md), [презентация](docs/presentation.pdf), скриншоты `docs/screens/` |
 | `data/raw/` | датасет организаторов — **не в git**: распаковать `cashflow_dataset_participants.zip` сюда |
 | `data/synthetic/` | наши демо-данные (компании S01–S05, источники, «как было на самом деле») |
 | `deploy/`, `docker-compose.yml`, `scripts/` | Caddy (HTTPS), запуск в Docker, smoke-тест, выписка «по дату» для демо |
