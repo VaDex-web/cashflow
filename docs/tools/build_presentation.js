@@ -100,8 +100,8 @@ const SRC_TAKEAWAY = 'На синтетической демо-компании 
 ;(async () => {
   pres.addSection({ title: 'Начало' })
   let s = pres.addSlide({ masterName: 'DARK', sectionTitle: 'Начало' })
-  s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: 0.6, y: 0.7, w: 0.62, h: 0.62, rectRadius: 0.12, fill: { color: C.accent1 }, line: { type: 'none' }, objectName: 'logo mark' })
-  s.addText('₽', { x: 0.6, y: 0.7, w: 0.62, h: 0.62, fontSize: 26, bold: true, color: C.text2, align: 'center', valign: 'middle', margin: 0, isTextBox: true, objectName: 'logo glyph' })
+  const logo = await sharp(path.join(ROOT, 'web/public/logo.svg'), { density: 600 }).resize(256, 256).png().toBuffer()
+  s.addImage({ data: 'image/png;base64,' + logo.toString('base64'), x: 0.6, y: 0.7, w: 0.62, h: 0.62, objectName: 'logo' })
   s.addText('Хакатон Банка Центр-Инвест', { x: 1.4, y: 0.75, w: 6, h: 0.5, fontSize: 14, color: 'A9C7B5', valign: 'middle', margin: 0, isTextBox: true, objectName: 'event' })
   s.addText('Денежный прогноз', { placeholder: 'title' })
   s.addText('Предупреждаем предпринимателя о кассовом разрыве заранее — и подсказываем, что сделать', { placeholder: 'body' })
@@ -131,7 +131,7 @@ const SRC_TAKEAWAY = 'На синтетической демо-компании 
   s = content('Проблема и решение')
   s.addText('Три ответа на одном экране', { placeholder: 'title' })
   const sol = [
-    [fa.FaScaleBalanced, 'Хватит ли денег', 'светофор и одна фраза: «через 14 дней, 30 сентября, может не хватить 458 000 ₽»'],
+    [fa.FaScaleBalanced, 'Хватит ли денег', 'цветная карточка риска и одна фраза: «через 14 дней, 30 сентября, дефицит составит 458 000 ₽»'],
     [fa.FaCalendarDays, 'Когда и сколько', 'остаток по дням на 30+ дней: ожидаемый и возможный диапазон, дата, сумма и вероятность разрыва'],
     [fa.FaListCheck, 'Что делать', 'конкретное действие: «попросите ООО «Ритейл-381» оплатить до 30 сентября»'],
   ]
@@ -150,7 +150,7 @@ const SRC_TAKEAWAY = 'На синтетической демо-компании 
   await screen(s, '04_grafik.png', { x: 0.5, y: 1.1, w: 5.6, h: 4.05 }, { name: 'chart screenshot' })
   const facts = [
     ['30 сентября', 'дата разрыва: прогноз = факт', C.accent2],
-    ['58%', 'вероятность за 14 и за 7 дней: средний риск, светофор жёлтый', C.accent4],
+    ['58%', 'вероятность за 14 и за 7 дней: средний риск, оранжевая карточка', C.accent4],
     ['−458 тыс. ₽', 'ожидаемый остаток; на деле −381 тыс. ₽ 30.09 и −472 тыс. ₽ 1.10', C.text2],
   ]
   for (let i = 0; i < facts.length; i++) {
