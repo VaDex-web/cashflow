@@ -1,9 +1,3 @@
-"""Pydantic-схемы строго по docs/contract.md.
-
-Event, Scenario, ForecastResult, ScenarioResult, PlanFact и ответы эндпоинтов. Необязательные поля
-контракта (warnings, current_balance, as_of, comfort_balance, daily[].events, risks[].kind) объявлены Optional и не выводятся,
-если ядро их не вернуло (``response_model_exclude_none``).
-"""
 from __future__ import annotations
 
 import datetime as dt
@@ -24,10 +18,7 @@ class _Model(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
 
-# --------------------------------------------------------------------------- Event
 class EventCreate(_Model):
-    """Event без id — тело POST /companies/{id}/events."""
-
     type: EventType = "manual"
     direction: Direction
     amount: float = Field(gt=0, description="сумма, ₽ (> 0)")
@@ -43,8 +34,6 @@ class Event(EventCreate):
 
 
 class EventUpdate(_Model):
-    """Частичное изменение события (PATCH)."""
-
     type: Optional[EventType] = None
     direction: Optional[Direction] = None
     amount: Optional[float] = Field(default=None, gt=0)
@@ -64,7 +53,6 @@ class EventParseResult(_Model):
     saved: Optional[Event] = None
 
 
-# --------------------------------------------------------------------------- Scenario
 class Scenario(_Model):
     type: ScenarioType
     params: dict[str, Any] = Field(default_factory=dict)
@@ -104,7 +92,6 @@ def _num(v: Any, name: str) -> float:
         raise ValueError(f"Параметр {name} должен быть числом") from None
 
 
-# --------------------------------------------------------------------------- ForecastResult
 class DailyPoint(_Model):
     date: str
     balance_p50: float
@@ -120,7 +107,7 @@ class Risk(_Model):
     severity: Severity
     reason: str
     recommendations: list[str] = Field(default_factory=list)
-    kind: Optional[Literal["gap", "below_comfort"]] = None  # gap — ниже 0 ₽, below_comfort — ниже комфортного минимума
+    kind: Optional[Literal["gap", "below_comfort"]] = None
 
 
 class Recurring(_Model):
@@ -148,7 +135,7 @@ class ForecastResult(_Model):
     warnings: Optional[list[str]] = None
     current_balance: Optional[float] = None
     as_of: Optional[str] = None
-    comfort_balance: Optional[float] = None  # комфортный минимум на счёте, ₽
+    comfort_balance: Optional[float] = None
 
 
 class ScenarioDelta(_Model):
@@ -157,7 +144,6 @@ class ScenarioDelta(_Model):
 
     @model_serializer(mode="plain")
     def _always_both(self) -> dict[str, Any]:
-        # ключи есть всегда (null — разрыва нет), даже при response_model_exclude_none
         return {"first_gap_date": self.first_gap_date, "max_shortfall": self.max_shortfall}
 
 
@@ -167,7 +153,6 @@ class ScenarioResult(_Model):
     delta: ScenarioDelta
 
 
-# --------------------------------------------------------------------------- PlanFact
 class Deviation(_Model):
     event_id: str
     text: str
@@ -182,7 +167,6 @@ class PlanFactRow(_Model):
     deviations: list[Deviation] = Field(default_factory=list)
 
 
-# --------------------------------------------------------------------------- прочие ответы
 class LoginRequest(_Model):
     username: str = Field(min_length=1, max_length=64)
     password: str = Field(min_length=1, max_length=128)
@@ -225,8 +209,6 @@ class MeUpdate(_Model):
 
 
 class CompanySettingsIn(_Model):
-    """Настройки владельца. ``null`` — вернуть значение по умолчанию."""
-
     safety_cushion: Optional[float] = Field(default=None, ge=0, description="комфортный минимум на счёте, ₽")
     tax_regime: Optional[Literal["usn_income", "usn_income_expense", "osno", "eshn"]] = None
 
@@ -274,8 +256,6 @@ class SyncResponse(_Model):
 
 
 class TransactionIn(_Model):
-    """Строка выписки для POST /transactions: внутренний формат или колонки датасета."""
-
     model_config = ConfigDict(extra="allow")
 
     date: Optional[str] = None

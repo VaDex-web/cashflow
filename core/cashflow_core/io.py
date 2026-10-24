@@ -1,18 +1,3 @@
-"""Загрузка и очистка банковской выписки (п.1 задания).
-
-:func:`load_statement` принимает путь к CSV/XLSX, file-like объект или
-DataFrame и возвращает нормализованную таблицу операций со стандартными
-колонками контракта. Парсер терпим к:
-
-* разным названиям колонок (русские/английские, «Дебет/Кредит», «Сумма»);
-* знаковой сумме (минус = списание) и отдельным колонкам прихода/расхода;
-* форматам дат (ISO, ДД.ММ.ГГГГ, ДД/ММ/ГГГГ, с временем, серийные даты Excel);
-* числам вида «1 234,56», «(500)», «−300 ₽»;
-* пропускам, дублям, строкам-«шапкам» над таблицей, кодировке cp1251.
-
-Ряд выравнивается по календарным дням в :func:`to_daily`, а остаток
-сверяется с суммой операций: расхождения помечаются, но работа продолжается.
-"""
 from __future__ import annotations
 
 import csv
@@ -60,7 +45,6 @@ COLUMN_ALIASES: dict[str, list[str]] = {
 COLUMN_ALIASES["purpose"] += ["payment purpose", "payment_purpose"]
 COLUMN_ALIASES["date"] += ["operation date", "operation_date"]
 
-# Подстроки для нечёткого сопоставления, если точного совпадения нет.
 _FUZZY: list[tuple[str, tuple[str, ...]]] = [
     ("counterparty_inn", ("инн", "inn")),
     ("balance_eod", ("остат", "balance")),
@@ -84,7 +68,6 @@ _DATE_FORMATS = [
 ]
 
 
-# --------------------------------------------------------------------------- utils
 def _norm_header(h: Any) -> str:
     s = str(h).replace("﻿", "").strip().lower().replace("ё", "е")
     s = re.sub(r"[\"'«»]", "", s)
@@ -93,7 +76,6 @@ def _norm_header(h: Any) -> str:
 
 
 def _match_columns(headers: Iterable[Any]) -> dict[str, str]:
-    """Сопоставить исходные заголовки стандартным именам. Возвращает {std: original}."""
     headers = list(headers)
     normed = {h: _norm_header(h) for h in headers}
     mapping: dict[str, str] = {}
@@ -113,7 +95,6 @@ def _match_columns(headers: Iterable[Any]) -> dict[str, str]:
                 continue
             n = normed[h]
             if any(s in n for s in subs):
-                # «Дебет/Кредит» — это направление, а не сумма.
                 if std in ("debit", "credit") and "/" in n:
                     continue
                 mapping[std] = h
@@ -123,7 +104,6 @@ def _match_columns(headers: Iterable[Any]) -> dict[str, str]:
 
 
 def parse_number(x: Any) -> float:
-    """Разобрать число в «бухгалтерском» виде: '1 234,56', '(500)', '−300 ₽', '1,234.50'."""
     if x is None:
         return np.nan
     if isinstance(x, (int, float, np.integer, np.floating)) and not isinstance(x, bool):
@@ -159,11 +139,9 @@ def parse_number(x: Any) -> float:
 
 
 def parse_dates(values: pd.Series) -> tuple[pd.Series, list[str]]:
-    """Разобрать столбец дат в разных форматах. Возвращает (даты, использованные форматы)."""
     s = values.astype(str).str.strip()
     out = pd.Series(pd.NaT, index=s.index, dtype="datetime64[ns]")
     used: list[str] = []
-    # Серийные даты Excel
     num = pd.to_numeric(s, errors="coerce")
     excel_mask = num.between(20000, 80000) & s.str.fullmatch(r"\d+(\.\d+)?")
     if excel_mask.any():
@@ -206,7 +184,6 @@ def _parse_direction(v: Any) -> str | None:
 
 
 def _read_any(src: str | Path | BinaryIO | bytes) -> pd.DataFrame:
-    """Прочитать CSV/XLSX с автоопределением кодировки и разделителя."""
     if isinstance(src, (str, Path)):
         p = Path(src)
         if p.suffix.lower() in (".xlsx", ".xls"):
@@ -233,11 +210,6 @@ def _read_any(src: str | Path | BinaryIO | bytes) -> pd.DataFrame:
 
 
 def _detect_layout(text: str) -> tuple[str, int]:
-    """Выбрать разделитель и первую строку таблицы (пропуская «шапку» выгрузки).
-
-    Разделитель — тот, при котором больше всего строк имеют одинаковое число полей (> 1);
-    таблица начинается с первой строки этой ширины.
-    """
     lines = text.splitlines()[:300]
     best = (",", 0, -1)
     for sep in (";", ",", "\t", "|"):
@@ -253,7 +225,6 @@ def _detect_layout(text: str) -> tuple[str, int]:
 
 
 def _find_header(raw: pd.DataFrame) -> pd.DataFrame:
-    """Найти строку заголовка (банковские выгрузки часто имеют «шапку» сверху)."""
     best_row, best_score = 0, -1
     for i in range(min(25, len(raw))):
         m = _match_columns([c for c in raw.iloc[i].tolist() if str(c).strip()])
@@ -261,7 +232,6 @@ def _find_header(raw: pd.DataFrame) -> pd.DataFrame:
         if score > best_score:
             best_row, best_score = i, score
     header = [str(c) if str(c).strip() else f"col{j}" for j, c in enumerate(raw.iloc[best_row].tolist())]
-    # уникальные имена
     seen: dict[str, int] = {}
     for j, h in enumerate(header):
         if h in seen:
@@ -275,7 +245,6 @@ def _find_header(raw: pd.DataFrame) -> pd.DataFrame:
 
 
 def _tx_ids(df: pd.DataFrame) -> pd.Series:
-    """Детерминированные id операций (хэш полей + номер повтора)."""
     key = (
         df["date"].dt.strftime("%Y-%m-%d") + "|" + df["direction"] + "|" + df["amount"].round(2).astype(str)
         + "|" + df["counterparty_inn"] + "|" + df["counterparty_name"] + "|" + df["purpose"]
@@ -284,32 +253,17 @@ def _tx_ids(df: pd.DataFrame) -> pd.Series:
     return (key + "|" + rep).map(lambda k: "t" + hashlib.sha1(k.encode("utf-8")).hexdigest()[:12])
 
 
-# --------------------------------------------------------------------------- main API
 def load_statement(
     path_or_df: str | Path | pd.DataFrame | BinaryIO | bytes,
     *,
     opening_balance: float | None = None,
     company_id: str | None = None,
 ) -> pd.DataFrame:
-    """Загрузить и очистить выписку.
-
-    Args:
-        path_or_df: путь к CSV/XLSX, байты, file-like или DataFrame.
-        opening_balance: остаток на начало периода, если в выписке нет колонки остатка.
-        company_id: идентификатор компании (сохраняется в ``df.attrs``).
-
-    Returns:
-        DataFrame операций с колонками :data:`STANDARD_COLUMNS`, отсортированный по дате.
-        ``amount`` > 0, ``direction`` ∈ {"in","out"}, ``signed_amount`` = ±amount.
-        В ``df.attrs`` лежат ``warnings`` (список строк), ``quality`` (счётчики)
-        и ``opening_balance``. Функция не бросает исключения на «грязных» данных:
-        плохие строки отбрасываются и учитываются в ``quality``.
-    """
     warnings: list[str] = []
     quality: dict[str, Any] = {}
 
     if isinstance(path_or_df, pd.DataFrame):
-        src = path_or_df.copy().reset_index(drop=True)  # индекс может быть неуникальным
+        src = path_or_df.copy().reset_index(drop=True)
         src.attrs = {}
         mapping = _match_columns(src.columns)
         if "date" not in mapping:
@@ -318,7 +272,7 @@ def load_statement(
     else:
         try:
             raw = _read_any(path_or_df)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             log.warning("statement read failed: %s", type(exc).__name__)
             empty = _empty_frame()
             empty.attrs.update(warnings=[f"Не удалось прочитать файл выписки ({type(exc).__name__})."],
@@ -328,7 +282,6 @@ def load_statement(
         src = _find_header(raw) if len(raw) else pd.DataFrame()
         mapping = _match_columns(src.columns)
 
-    # файл с несколькими компаниями (all_operations.csv) — берём нужную
     if "company_id" in mapping and len(src):
         cids = src[mapping["company_id"]].astype(str).str.strip()
         uniq = [c for c in cids.unique() if c]
@@ -351,12 +304,11 @@ def load_statement(
                            company_id=company_id)
         return empty
 
-    col = lambda k: src[mapping[k]] if k in mapping else pd.Series([""] * len(src), index=src.index)  # noqa: E731
+    col = lambda k: src[mapping[k]] if k in mapping else pd.Series([""] * len(src), index=src.index)
 
     dates, fmts = parse_dates(col("date"))
     quality["date_formats"] = fmts
 
-    # --- суммы и направления
     if "amount" in mapping:
         amt = col("amount").map(parse_number).astype(float)
         dir_raw = col("direction").map(_parse_direction) if "direction" in mapping else pd.Series([None] * len(src), index=src.index)
@@ -369,7 +321,6 @@ def load_statement(
     else:
         deb = col("debit").map(parse_number).astype(float).abs().fillna(0.0)
         cre = col("credit").map(parse_number).astype(float).abs().fillna(0.0)
-        # строка может содержать и дебет, и кредит — разворачиваем в две операции
         both = (deb > 0) & (cre > 0)
         base = src.copy()
         base["_amount"] = np.where(cre > 0, cre, deb)
@@ -383,7 +334,7 @@ def load_statement(
         src = base
         amount = src["_amount"].astype(float).where(lambda v: v > 0)
         direction = pd.Series(src["_dir"].values, index=src.index)
-        col = lambda k: src[mapping[k]] if k in mapping else pd.Series([""] * len(src), index=src.index)  # noqa: E731
+        col = lambda k: src[mapping[k]] if k in mapping else pd.Series([""] * len(src), index=src.index)
 
     def _clean_text(s: pd.Series) -> pd.Series:
         return s.fillna("").astype(str).str.strip().replace({"nan": "", "None": "", "NaN": ""})
@@ -463,11 +414,6 @@ def load_statement(
 
 
 def read_companies(path: str | Path) -> dict[str, pd.DataFrame]:
-    """Прочитать общий файл (например ``all_operations.csv``) и разбить по ``company_id``.
-
-    Возвращает {company_id: «сырой» DataFrame}; каждый можно передать в :func:`load_statement`.
-    Все поля читаются как строки (ИНН с ведущими нулями не теряются).
-    """
     raw = _find_header(_read_any(path))
     mapping = _match_columns(raw.columns)
     if "company_id" not in mapping:
@@ -493,14 +439,8 @@ def _longest_run(mask: np.ndarray) -> int:
 
 
 def _drop_duplicates(df: pd.DataFrame) -> tuple[pd.DataFrame, int]:
-    """Удалить дубли. Если есть остатки, решение по дню принимается сверкой с остатком.
-
-    Одинаковые операции в один день бывают и настоящими (две одинаковые комиссии),
-    поэтому при наличии остатков дубль удаляется, только если без него остаток сходится лучше.
-    """
     if not len(df):
         return df, 0
-    # operation_id в дублях выгрузки бывает разным, поэтому сравниваем по содержанию операции
     key_cols = ["date", "amount", "direction", "counterparty_inn", "counterparty_name", "purpose"]
     dup_mask = df.duplicated(subset=key_cols, keep="first")
     if not dup_mask.any():
@@ -518,7 +458,7 @@ def _drop_duplicates(df: pd.DataFrame) -> tuple[pd.DataFrame, int]:
         if not tmp.loc[tmp["date"] == d, "_dup"].any():
             continue
         if pd.isna(r["bal"]) or pd.isna(r["prev_bal"]):
-            drop_days.add(d)  # нечем проверить — считаем дублем
+            drop_days.add(d)
             continue
         delta = r["bal"] - r["prev_bal"]
         if abs(r["net_dedup"] - delta) <= abs(r["net_all"] - delta):
@@ -528,15 +468,6 @@ def _drop_duplicates(df: pd.DataFrame) -> tuple[pd.DataFrame, int]:
 
 
 def to_daily(df: pd.DataFrame) -> pd.DataFrame:
-    """Свернуть операции в календарный дневной ряд.
-
-    Returns:
-        DataFrame с индексом по всем календарным дням от первой до последней даты и
-        колонками ``inflow``, ``outflow``, ``net``, ``n_tx``, ``balance_reported``
-        (из выписки, протянут на дни без операций), ``balance`` (по операциям,
-        привязан к последнему известному остатку), ``mismatch`` (остаток в выписке
-        не равен «вчерашний остаток + потоки»).
-    """
     cols = ["inflow", "outflow", "net", "n_tx", "balance_reported", "balance", "mismatch"]
     if df is None or not len(df):
         return pd.DataFrame(columns=cols, index=pd.DatetimeIndex([], name="date"))
@@ -559,7 +490,6 @@ def to_daily(df: pd.DataFrame) -> pd.DataFrame:
     else:
         anchor = float(df.attrs.get("opening_balance", 0.0) or 0.0)
     daily["balance"] = anchor + cum
-    # сверка: изменение остатка между соседними ИЗВЕСТНЫМИ днями = сумма операций между ними
     known = bal_rep.dropna()
     mismatch = pd.Series(False, index=idx)
     if len(known) > 1:

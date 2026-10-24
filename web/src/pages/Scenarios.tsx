@@ -16,7 +16,6 @@ const CARDS: { type: ScenarioType; icon: string; title: string; text: string }[]
   { type: 'fixed_cost_growth', icon: '🏢', title: 'Вырастут постоянные расходы', text: 'Аренда, зарплата, кредиты подорожают' },
 ]
 
-/** Первый разрыв по ожидаемому остатку: дата и нехватка в первые 10 дней разрыва — как на главной карточке */
 function firstGap(f: ForecastResult) {
   const neg = f.daily.filter((d) => d.balance_p50 < 0)
   if (!neg.length) return null
@@ -40,7 +39,6 @@ export function Scenarios() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // Кто может заплатить позже: ожидаемые поступления из источников и регулярные клиенты из выписки
   const clients = useMemo(() => {
     const out: { value: string; label: string; amount: number }[] = []
     const seen = new Set<string>()
@@ -155,7 +153,6 @@ function Slider({ label, value, min, max, step, onChange, fmt }: { label: string
   )
 }
 
-/** «Выручка от клиентов — АО «ДонТрансЛогистика» (~26-го числа)» → «АО «ДонТрансЛогистика»» */
 function recurringCounterparty(name: string): string {
   const m = name.split(' — ')[1]
   return (m ?? '').replace(/\s*\(~?[^)]*\)\s*$/, '').trim()
@@ -163,8 +160,6 @@ function recurringCounterparty(name: string): string {
 
 function ScenarioView({ res }: { res: ScenarioResult }) {
   const b = firstGap(res.base)
-  // Фраза считается по ожидаемому остатку — так же, как нарисован график (delta ядра может считаться
-  // от комфортного минимума, и тогда числа во фразе и на графике разошлись бы)
   const s = firstGap(res.scenario)
   const today = forecastToday(res.base)
   const start = res.base.current_balance

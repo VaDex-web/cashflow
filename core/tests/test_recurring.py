@@ -1,4 +1,3 @@
-"""Регулярные платежи: период, сдвиг на выходные, плотные потоки."""
 from datetime import date
 
 import pandas as pd
@@ -48,7 +47,6 @@ def test_holiday_shift_rules():
 
 
 def _enp_statement(late: dict[int, int], as_of: date) -> pd.DataFrame:
-    """ЕНП 28-го (перенос вперёд) за 24 месяца; ``late`` — {номер месяца: на сколько дней позже}."""
     rows, bal = [], 5_000_000.0
     for k in range(24):
         y, m = divmod(2024 * 12 + 9 + k, 12)
@@ -60,7 +58,7 @@ def _enp_statement(late: dict[int, int], as_of: date) -> pd.DataFrame:
         rows.append({"operation_date": d.isoformat(), "amount": 300_000 + 1_000 * k, "direction": "Списание",
                      "counterparty_inn": "7727406020", "counterparty_name": "Казначейство России (ФНС России)",
                      "payment_purpose": "Единый налоговый платеж", "balance_eod": bal})
-    for k in range(0, 720, 3):  # фон: выручка, чтобы выписка была похожа на настоящую
+    for k in range(0, 720, 3):
         d = date.fromordinal(date(2024, 10, 1).toordinal() + k)
         if d <= as_of:
             rows.append({"operation_date": d.isoformat(), "amount": 120_000, "direction": "Поступление",
@@ -70,7 +68,6 @@ def _enp_statement(late: dict[int, int], as_of: date) -> pd.DataFrame:
 
 
 def test_enp_is_28th_even_with_late_payments():
-    # как у C022/C041: в части месяцев ЕНП ушёл 29–30-го, один раз — 2-го следующего месяца
     as_of = date(2026, 9, 28)
     c = categorize(load_statement(_enp_statement({2: 5, 7: 1, 11: 2, 15: 1}, as_of)))
     tax = [p for p in find_patterns(c, as_of) if p.category == "taxes"]
@@ -83,7 +80,6 @@ def test_enp_is_28th_even_with_late_payments():
 
 
 def test_dividends_and_founder_loans_are_not_recurring():
-    # дивиденды каждый квартал и возврат займа учредителю каждый месяц — решения владельца, а не обязательства
     rows = []
     for k in range(18):
         y, m = divmod(2025 * 12 + k, 12)

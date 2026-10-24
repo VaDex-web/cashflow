@@ -1,9 +1,3 @@
-"""Логи без чувствительных данных.
-
-Фильтр маскирует в любом сообщении токены (JWT, Bearer), ИНН (10/12 цифр), суммы, наименования в кавычках «…»
-и e-mail; middleware пишет только метод, путь без query, код ответа и время.
-Тела запросов, назначения платежей и названия контрагентов в логи не попадают.
-"""
 from __future__ import annotations
 
 import logging
@@ -33,12 +27,10 @@ def mask(text: str) -> str:
 
 
 class SensitiveDataFilter(logging.Filter):
-    """Маскирует чувствительные данные в сообщении и аргументах записи лога."""
-
     def filter(self, record: logging.LogRecord) -> bool:
         try:
             msg = record.getMessage()
-        except Exception:  # noqa: BLE001
+        except Exception:
             msg = str(record.msg)
         record.msg = mask(msg)
         record.args = ()
@@ -68,7 +60,6 @@ def setup_logging(level: int = logging.INFO) -> None:
             h.addFilter(flt)
     for h in root.handlers:
         h.addFilter(flt)
-    # access-лог uvicorn пишет query-строку — заменяем своим middleware
     logging.getLogger("uvicorn.access").disabled = True
     _installed = True
 
@@ -77,7 +68,7 @@ log = logging.getLogger("api.http")
 
 
 class AccessLogMiddleware(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):  # noqa: ANN001
+    async def dispatch(self, request: Request, call_next):
         t0 = time.perf_counter()
         status = 500
         try:
@@ -86,5 +77,4 @@ class AccessLogMiddleware(BaseHTTPMiddleware):
             return response
         finally:
             path = request.url.path
-            # id компаний оставляем, но длинные числа в пути маскирует фильтр
             log.info("%s %s %s %.0fms", request.method, path, status, (time.perf_counter() - t0) * 1000)

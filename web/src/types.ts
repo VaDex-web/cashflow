@@ -1,6 +1,3 @@
-// Типы строго по docs/contract.md. Поля с пометкой [optional] ядро может не отдавать —
-// интерфейс должен работать и без них.
-
 export type Direction = 'in' | 'out'
 export type Severity = 'low' | 'medium' | 'high'
 
@@ -35,7 +32,7 @@ export interface DailyPoint {
   balance_p50: number
   balance_low: number
   balance_high: number
-  events?: string[] // [optional]
+  events?: string[]
 }
 
 export interface Risk {
@@ -45,7 +42,7 @@ export interface Risk {
   severity: Severity
   reason: string
   recommendations: string[]
-  kind?: 'gap' | 'below_comfort' // [optional] разрыв ниже 0 ₽ или ниже комфортного минимума
+  kind?: 'gap' | 'below_comfort'
 }
 
 export interface Recurring {
@@ -65,10 +62,10 @@ export interface ForecastResult {
   risks: Risk[]
   recurring: Recurring[]
   sources_used: string[]
-  warnings?: string[] // [optional]
-  current_balance?: number // [optional]
-  as_of?: string // [optional]
-  comfort_balance?: number // [optional] комфортный минимум на счёте
+  warnings?: string[]
+  current_balance?: number
+  as_of?: string
+  comfort_balance?: number
 }
 
 export interface ScenarioResult {
@@ -99,7 +96,6 @@ export interface Transaction {
   category_confidence?: number
 }
 
-// ответ /categories
 export interface CategorySummary {
   category: string
   direction: Direction
@@ -121,7 +117,6 @@ export interface SyncResponse {
   message?: string
 }
 
-// core/reports/metrics.json
 export interface ModelMetrics {
   name: string
   mae: number

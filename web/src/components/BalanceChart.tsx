@@ -56,13 +56,11 @@ export function BalanceChart({ base, compare, events = [], risks = [], start, co
   const all = rows.flatMap((r) => [r.band?.[0], r.band?.[1], r.bandb?.[0], r.bandb?.[1]]).filter((v): v is number => v != null)
   const minY = Math.min(0, ...all)
   const maxY = Math.max(...all, 0)
-  // Круглые деления, кратные шагу: 0 ₽ всегда попадает на деление
   const step = niceStep((maxY - minY) / 5)
   const yMin = Math.floor(minY / step) * step
   const yMax = Math.ceil(maxY / step) * step
   const ticks = Array.from({ length: Math.round((yMax - yMin) / step) + 1 }, (_, i) => yMin + i * step)
 
-  // Отрезки, где ожидаемый остаток ниже нуля — подсвечиваем как «разрыв»
   const gapSeries = compare ?? base
   const gaps: [string, string][] = []
   let open: string | null = null
@@ -74,7 +72,6 @@ export function BalanceChart({ base, compare, events = [], risks = [], start, co
   }
   if (open) gaps.push([open, last])
 
-  // Маркеры крупных платежей: только события ≥ 5% от размаха, чтобы не загромождать
   const big = Math.max(50_000, (yMax - yMin) * 0.05)
   const markers = rows.flatMap((r) => r.evs.filter((e) => e.amount >= big).map((e) => ({ date: r.date, e })))
 

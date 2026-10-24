@@ -1,8 +1,3 @@
-"""Генератор согласованных mock-ответов по docs/contract.md.
-
-Запуск: python3 docs/mock/_generate.py  (пишет *.json рядом с собой)
-Компания-пример: ООО «Южный Вкус» — оптовая поставка продуктов в кафе, Ростов-на-Дону.
-"""
 import json
 import math
 import random
@@ -11,7 +6,7 @@ from pathlib import Path
 
 OUT = Path(__file__).parent
 COMPANY = "demo-yuzhny-vkus"
-TODAY = date(2026, 10, 23)  # последняя фактическая дата выписки
+TODAY = date(2026, 10, 23)
 HORIZON = 30
 START_BALANCE = 500_000
 GENERATED_AT = "2026-10-23T18:30:00+03:00"
@@ -21,7 +16,6 @@ def d(s):
     return date.fromisoformat(s)
 
 
-# Ожидаемые события (Event)
 EVENTS = [
     {"id": "ev-payroll-1026", "type": "payroll", "direction": "out", "amount": 412_000, "date": "2026-10-26",
      "source": "1c", "status": "expected", "counterparty": "Сотрудники (12 чел.)", "note": "Зарплата за 2-ю половину октября"},
@@ -47,7 +41,6 @@ EVENTS = [
      "source": "1c", "status": "expected", "counterparty": "ООО «Агрокомплекс Дон»", "note": "Предоплата закупки к новогоднему сезону"},
 ]
 
-# Прошлые события для план-факта (часть просрочена)
 PAST_EVENTS = [
     {"id": "ev-lakomka-1016", "type": "invoice", "direction": "in", "amount": 210_000, "date": "2026-10-16",
      "source": "1c", "status": "overdue", "counterparty": "ООО «Пекарня Лакомка»", "note": "Счёт №301 — не оплачен"},
@@ -57,9 +50,8 @@ PAST_EVENTS = [
      "source": "1c", "status": "paid", "counterparty": "Сотрудники (12 чел.)", "note": "Аванс за октябрь"},
 ]
 
-# Ежедневный «фон»: выручка от мелких клиентов и мелкие расходы (будни)
 DAILY_IN, DAILY_OUT = 58_000, 21_000
-SIGMA_DAY = 52_000  # неопределённость в день
+SIGMA_DAY = 52_000
 
 
 def daily_flows(day, events, revenue_k=1.0, fixed_k=1.0):
@@ -109,7 +101,6 @@ def build_forecast(events, revenue_k=1.0, fixed_k=1.0, label=None):
             row["events"] = ev_ids
         daily.append((row, sigma))
 
-    # Эпизоды риска: подряд идущие дни с balance_low < 0
     risks, episode = [], []
     for row, sigma in daily + [(None, None)]:
         if row and row["balance_low"] < 0:
@@ -224,7 +215,6 @@ def transactions():
                              "balance_eod": bal, "category": c,
                              "category_confidence": round(rnd.uniform(0.62, 0.99), 2)})
         day += timedelta(days=1)
-    # Сводим конечный остаток к START_BALANCE
     shift = START_BALANCE - rows[-1]["balance_eod"]
     for r in rows:
         r["balance_eod"] += shift

@@ -1,4 +1,3 @@
-"""Парсер выписки: форматы, дубли, остатки, мусор."""
 import numpy as np
 import pandas as pd
 
@@ -20,11 +19,11 @@ def test_dataset_format_maps_columns_and_keeps_inn_zeros():
 def test_messy_format_signed_amounts_commas_and_ru_dates():
     raw = generate_statement(days=120, fmt="messy")
     df = load_statement(to_csv_bytes(raw, sep=";", encoding="cp1251"))
-    assert len(df) == len(raw) - 1  # один дубль удалён
+    assert len(df) == len(raw) - 1
     assert df["date"].dt.year.min() >= 2025
     assert (df["amount"] > 0).all()
     assert any("дублир" in w for w in df.attrs["warnings"])
-    assert any("не сходится" in w for w in df.attrs["warnings"])  # пропущенная неделя
+    assert any("не сходится" in w for w in df.attrs["warnings"])
 
 
 def test_header_preamble_and_comma_separator():
@@ -38,15 +37,13 @@ def test_header_preamble_and_comma_separator():
 
 def test_duplicates_decided_by_balance():
     raw = generate_statement(days=40)
-    # настоящий повтор операции: две одинаковые комиссии, остаток это учитывает
-    k = 25  # не первый день: для сверки нужен остаток предыдущего дня
+    k = 25
     extra = raw.iloc[[k]].copy()
     raw2 = pd.concat([raw.iloc[:k + 1], extra, raw.iloc[k + 1:]]).reset_index(drop=True)
     day = raw2.loc[k + 1, "date"]
     sign = -1 if raw2.loc[k + 1, "direction"] == "out" else 1
     raw2.loc[raw2["date"] >= day, "balance_eod"] += sign * raw2.loc[k + 1, "amount"]
     assert len(load_statement(raw2)) == len(raw2), "реальный повтор не должен удаляться"
-    # дубль выгрузки: остаток его НЕ учитывает
     raw3 = pd.concat([raw.iloc[:k + 1], extra, raw.iloc[k + 1:]]).reset_index(drop=True)
     assert len(load_statement(raw3)) == len(raw)
 
@@ -71,6 +68,5 @@ def test_daily_alignment_and_balance_identity():
     df = load_statement(generate_statement(days=90))
     d = to_daily(df)
     assert (d.index == pd.date_range(d.index[0], d.index[-1], freq="D")).all()
-    # остаток = вчерашний остаток + потоки дня
     assert np.allclose(d["balance"].diff().iloc[1:], d["net"].iloc[1:], atol=0.01)
     assert not d["mismatch"].any()

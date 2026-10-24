@@ -13,12 +13,11 @@ export function Login() {
 
   async function enter(token: string, keepCompany: boolean) {
     login(token)
-    // У пользователя может уже быть своя компания (API: один пользователь = одна компания)
     let company = keepCompany ? companyId : null
     try {
       const me = await api.me()
       if (me.company_id) company = me.company_id
-    } catch { /* нет /me — работаем по сохранённой компании */ }
+    } catch {  }
     setCompany(company)
     nav(company ? '/' : '/upload')
   }

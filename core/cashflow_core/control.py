@@ -1,16 +1,3 @@
-"""Имитация проверки на контрольном датасете: последние N дней каждой выписки — «факт».
-
-    python -m cashflow_core.control data/raw [--days 30] [--workers 4] [--split core/reports/split.json]
-
-Для каждой компании из выписки убираются операции за последние ``days`` календарных дней,
-по остатку строится прогноз тем же путём, что и в :mod:`predict` (боевая конфигурация,
-2000 траекторий), и медиана P50 сравнивается с фактическим ``balance_eod`` (дни без
-операций — последний известный остаток). Рядом — бейзлайн «остаток не изменится».
-
-Метрики: MAE (₽), WAPE = Σ|прогноз − факт| / Σ|факт|, медиана WAPE по компаниям, покрытие
-P10–P90 и доля компаний, где модель точнее бейзлайна (по MAE). Отдельно для dev и holdout,
-если передан ``--split``. Пишет ``<out>/control_<name>.json`` и ``.md``.
-"""
 from __future__ import annotations
 
 import argparse
@@ -29,7 +16,6 @@ from .parallel import make_pool
 
 
 def _raw_frame(src: Any) -> pd.DataFrame:
-    """Выписка как есть (строки и колонки файла), без очистки."""
     if isinstance(src, pd.DataFrame):
         return src.copy()
     from .io import _find_header, _read_any
@@ -39,7 +25,6 @@ def _raw_frame(src: Any) -> pd.DataFrame:
 
 
 def _until(raw: pd.DataFrame, cut: pd.Timestamp) -> pd.DataFrame:
-    """Строки выписки с датой не позже ``cut`` — «выписка, выгруженная на эту дату»."""
     from .io import _match_columns, parse_dates
 
     col = _match_columns(raw.columns).get("date")
@@ -50,7 +35,6 @@ def _until(raw: pd.DataFrame, cut: pd.Timestamp) -> pd.DataFrame:
 
 
 def control_company(cid: str, src: Any, days: int = 30, n_sims: int = 2000, seed: int = 42) -> dict[str, Any]:
-    """Прогноз по выписке без последних ``days`` дней и сравнение с фактом."""
     from .io import load_statement, to_daily
     from .predict import predict_company
 
@@ -64,7 +48,6 @@ def control_company(cid: str, src: Any, days: int = 30, n_sims: int = 2000, seed
     if cut < daily.index[0]:
         return {**out, "error": "история короче периода проверки"}
     raw = _until(_raw_frame(src), cut)
-    # последняя операция в обрезанной выписке может быть раньше cut — берём прогноз с запасом и выравниваем по датам
     res = predict_company(cid, raw, horizon=days + 15, seed=seed, n_sims=n_sims)
     bal = daily["balance_reported"].where(daily["balance_reported"].notna(), daily["balance"])
     idx = pd.date_range(cut + pd.Timedelta(days=1), periods=days, freq="D")
@@ -89,7 +72,7 @@ def _job(args: tuple[str, Any, int, int]) -> dict[str, Any]:
     cid, src, days, n_sims = args
     try:
         return control_company(cid, src, days, n_sims)
-    except Exception as exc:  # noqa: BLE001 — одна компания не должна ронять прогон
+    except Exception as exc:
         return {"company_id": cid, "error": type(exc).__name__}
 
 

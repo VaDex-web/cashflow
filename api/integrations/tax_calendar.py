@@ -1,19 +1,3 @@
-"""Налоговый календарь: ЕНП до 28-го, авансы по УСН, НДС по кварталам — по параметрам компании.
-
-Режим налогообложения берётся из настроек компании или оценивается по выписке (ядро
-``estimate_tax_regime``, иначе — по назначениям платежей). Суммы — оценка по истории:
-
-* **НДФЛ и страховые взносы** (каждый месяц, 28-е) — медиана ЕНП в «обычные» месяцы последнего года;
-  если налоговых платежей в истории нет — 42% от средней месячной зарплаты;
-* **УСН 6%** — 6% выручки квартала минус уплаченные взносы (не больше 50%), авансы 28.04, 28.07, 28.10,
-  годовой — 28.03 (ООО) / 28.04 (ИП);
-* **УСН 15%** — 15% от (доходы − расходы), не меньше 1% выручки;
-* **ОСНО** — НДС: (НДС с поступлений − НДС с оплат поставщикам) за квартал, тремя равными частями
-  28-го в каждый из трёх следующих месяцев; налог на прибыль — авансы 28.04/28.07/28.10, годовой 28.03;
-* **ЕСХН** — 6% от (доходы − расходы): аванс 28.07, годовой 28.03.
-
-Срок на выходной переносится на следующий рабочий день (производственный календарь РФ).
-"""
 from __future__ import annotations
 
 import re
@@ -30,7 +14,6 @@ REGIME_LABELS = {
     "usn_income": "УСН «Доходы» 6%", "usn_income_expense": "УСН «Доходы минус расходы» 15%",
     "osno": "ОСНО (с НДС)", "eshn": "ЕСХН", "unknown": "режим не определён",
 }
-#: доля «НДФЛ + страховые взносы» от выплаченной зарплаты — только для компаний без налоговой истории
 PAYROLL_TAX_SHARE = 0.42
 _ALIASES = {"usn6": "usn_income", "usn15": "usn_income_expense", "usn": "usn_income", "осно": "osno", "есхн": "eshn"}
 _VAT_RX = re.compile(r"(?i)ндс\s*\(?\s*(\d{1,2})\s*%\s*\)?\s*[=:-]?\s*([\d\s ]+[.,]\d{2})")
@@ -89,7 +72,6 @@ class TaxCalendar(Integration):
         return {"regime": "usn_income", "label": REGIME_LABELS["usn_income"], "confidence": 0.4,
                 "evidence": ["НДС в поступлениях не выделен — вероятнее упрощёнка"]}
 
-    # ------------------------------------------------------------------ оценки по истории
     def _series(self, ctx: CompanyContext) -> dict[str, Any]:
         cat = ctx.categories()
         d = cat.copy()
@@ -106,7 +88,7 @@ class TaxCalendar(Integration):
             is_pay = (d["direction"] == "out") & text.str.contains(_PAYROLL_RX)
             is_exp = (d["direction"] == "out") & ~is_tax & ~text.str.contains(_NOT_REVENUE)
         if ctx.inn:
-            is_rev = is_rev & ~d["counterparty_inn"].astype(str).eq(ctx.inn)       # свои переводы — не выручка
+            is_rev = is_rev & ~d["counterparty_inn"].astype(str).eq(ctx.inn)
 
         def vat_amounts(mask: pd.Series) -> pd.Series:
             vals = []
@@ -135,7 +117,6 @@ class TaxCalendar(Integration):
         return float(frame.loc[m, col].sum())
 
     def _quarter_value(self, frame: pd.DataFrame, col: str, y: int, q: int, as_of: date, first: date) -> tuple[float, str]:
-        """Сумма за квартал; незаконченный квартал — экстраполяция, нет истории — тот же квартал год назад."""
         a, b = _quarter(y, q)
         if a < first and b < first:
             pa, pb = _quarter(y - 1, q)
@@ -152,9 +133,6 @@ class TaxCalendar(Integration):
         return v, ""
 
     def _base(self, s: dict[str, Any], as_of: date, regime: str, first: date) -> tuple[float, str]:
-        """НДФЛ и взносы в месяц: медиана ЕНП за год в месяцы без квартальных платежей
-        (у плательщика НДС — за вычетом трети НДС прошлого квартала); без налоговой истории — 42% от зарплаты
-        (медиана по dev-компаниям датасета, ``python -m api.reports.calibrate_tax``; holdout не использовался)."""
         tax = s["tax"]
         last_year = tax[tax["date"] > as_of - timedelta(days=365)]
         if len(last_year) >= 3:
@@ -178,7 +156,6 @@ class TaxCalendar(Integration):
             return PAYROLL_TAX_SHARE * float(recent["amount"].sum()) / months, "42% от средней зарплаты"
         return 0.0, ""
 
-    # ------------------------------------------------------------------ календарь
     def fetch(self, company: CompanyContext) -> list[SourceEvent]:
         ctx = company
         if not len(ctx.df) or ctx.as_of is None:
@@ -220,13 +197,13 @@ class TaxCalendar(Integration):
                       is_ip: bool) -> list[tuple[str, float]]:
         parts: list[tuple[str, float]] = []
         rev, exp = s["rev"], s["exp"]
-        q_prev = (y - 1, 4) if m <= 3 else (y, (m - 1) // 3)       # квартал, который закончился до этого месяца
+        q_prev = (y - 1, 4) if m <= 3 else (y, (m - 1) // 3)
         if regime == "usn_income":
             if m in (4, 7, 10) or (m == (4 if is_ip else 3)):
                 qy, qn = (y, (m - 1) // 3) if m in (4, 7, 10) else (y - 1, 4)
                 r, how = self._quarter_value(rev, "amount", qy, qn, as_of, first)
                 tax = 0.06 * r
-                tax -= min(3 * base * 0.75, 0.5 * tax)               # уменьшение на взносы (до 50%)
+                tax -= min(3 * base * 0.75, 0.5 * tax)
                 label = {1: "1 квартал", 2: "полугодие", 3: "9 месяцев", 4: f"{qy} год"}[qn]
                 parts.append((f"УСН 6% за {label} (выручка за {qn} кв. ≈ {rub(r)}{', ' + how if how else ''})", max(tax, 0.0)))
         elif regime == "usn_income_expense":
@@ -251,8 +228,7 @@ class TaxCalendar(Integration):
                 r, _ = self._quarter_value(rev, "amount", qy, qn, as_of, first)
                 e, _ = self._quarter_value(exp, "amount", qy, qn, as_of, first)
                 rate = 22 if qy >= 2026 else 20
-                rev_ex = r - vo if 0 < vo < r else r / (1 + rate / 100)     # выручка без НДС
-                # расходы без НДС + НДФЛ и взносы (часть начисленной зарплаты); маржа не выше 15%
+                rev_ex = r - vo if 0 < vo < r else r / (1 + rate / 100)
                 profit = min(max(rev_ex - e / 1.15 - 3 * base, 0.0), 0.15 * rev_ex)
                 parts.append(("налог на прибыль" + (" за год" if m == 3 else f" (аванс за {qn} кв.)"), 0.25 * profit))
         elif regime == "eshn":

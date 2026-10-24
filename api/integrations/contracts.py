@@ -1,20 +1,3 @@
-"""Договоры с клиентами и поставщиками: суммы, график платежей, отсрочка, предоплата → события.
-
-Формат загрузки — JSON (список или ``{"contracts": [...]}``) или CSV (``;``/``,``), ключи по-русски
-или по-английски::
-
-    {"number": "П-2026/33", "counterparty_name": "ООО «Северный ритейл»", "counterparty_inn": "00…",
-     "direction": "in",               # in — с покупателем, out — с поставщиком
-     "total_amount": 960000, "signed_date": "2026-10-20",
-     "prepayment_percent": 30,        # предоплата при подписании
-     "deferral_days": 10,             # отсрочка окончательного расчёта после поставки/акта
-     "delivery_date": "2026-12-05",   # поставка/акт (если нет графика)
-     "monthly_amount": 0, "start_date": "", "end_date": "",   # абонентский договор: платёж каждый месяц
-     "schedule": [{"date": "2026-10-27", "amount": 288000, "note": "предоплата 30%"}]}
-
-Если есть ``schedule`` — события ровно по графику; иначе: предоплата в дату подписания и остаток
-в дату поставки + отсрочка; для абонентских — ежемесячно с учётом отсрочки.
-"""
 from __future__ import annotations
 
 import csv
@@ -57,7 +40,7 @@ def parse_contracts(raw: bytes | str | list | dict) -> list[dict[str, Any]]:
         name = str(pick(c, "counterparty_name", "контрагент_наименование", default=name) or name)
         inn = str(pick(c, "counterparty_inn", "инн", "ИНН", default=inn) or inn)
         sched_raw = pick(c, "schedule", "ГрафикПлатежей", "график", default=[]) or []
-        if isinstance(sched_raw, str):      # CSV: «2026-10-27:288000|2026-12-15:672000»
+        if isinstance(sched_raw, str):
             sched_raw = [{"date": p.split(":")[0], "amount": p.split(":")[1]} for p in sched_raw.split("|") if ":" in p]
         schedule = [{"date": as_date(pick(s, "date", "Дата")), "amount": to_float(pick(s, "amount", "Сумма")),
                      "note": str(pick(s, "note", "Этап", "Описание", "kind", default="") or "")}
@@ -82,7 +65,6 @@ def parse_contracts(raw: bytes | str | list | dict) -> list[dict[str, Any]]:
 
 def contract_events(contracts: list[dict[str, Any]], source: str, as_of: date | None, prefix: str = "ct",
                     horizon_days: int = 120) -> list[SourceEvent]:
-    """События по договорам (прошлые этапы тоже — для план-факта)."""
     out: list[SourceEvent] = []
     lo = (as_of or date.today()) - timedelta(days=90)
     hi = (as_of or date.today()) + timedelta(days=horizon_days)
@@ -123,7 +105,7 @@ def contract_events(contracts: list[dict[str, Any]], source: str, as_of: date | 
 class Contracts(Integration):
     name = "contracts"
     title = "Договоры"
-    source = "manual"          # загружены пользователем файлом; из 1С — source="1c"
+    source = "manual"
     description = "Договоры с клиентами и поставщиками: график, предоплата, отсрочка"
 
     def fetch(self, company: CompanyContext) -> list[SourceEvent]:

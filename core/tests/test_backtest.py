@@ -1,4 +1,3 @@
-"""Бэктест: метрики считаются и имеют смысл."""
 from cashflow_core import compare_models
 from cashflow_core.backtest import backtest
 from datagen import generate_statement

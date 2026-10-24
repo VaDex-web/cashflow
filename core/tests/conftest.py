@@ -1,4 +1,3 @@
-"""Тесты запускаются и без установки пакета: добавляем core/ и tests/ в sys.path."""
 import sys
 from pathlib import Path
 

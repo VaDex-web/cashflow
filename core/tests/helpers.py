@@ -1,4 +1,3 @@
-"""Общие помощники тестов (без pytest-фикстур, чтобы работал и мини-раннер)."""
 from __future__ import annotations
 
 from functools import lru_cache

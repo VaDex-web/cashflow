@@ -1,24 +1,3 @@
-"""Проверка качества на любом датасете в формате организаторов.
-
-    python -m cashflow_core.evaluate <папка | CSV> [--workers 4] [--out core/reports] [--split core/reports/split.json]
-
-* ``<папка>`` — папка с ``statements/*.csv`` (или просто с CSV-файлами выписок);
-  ``<CSV>`` — один файл: несколько компаний с колонкой ``company_id`` (как
-  ``all_operations.csv``) или одна выписка.
-* Для каждой компании — rolling-origin бэктест (модель видит только прошлое,
-  горизонт 30 дней) трёх подходов и боевой прогноз на последнюю дату (замер скорости).
-* Сравниваются 4 подхода: «остаток не изменится» (``flat``), наивный, сезонный и гибрид (продукт).
-  Ошибка остатка — по фактическому ``balance_eod`` и по остатку без пополнений владельца.
-* ``--split`` — JSON ``{dev: [...], holdout: [...]}``: метрики отдельно по частям.
-* Результат: ``<out>/evaluate_<имя>.json`` и ``.md`` — MAE/WAPE остатка, ошибка потоков,
-  покрытие интервалов, precision/recall разрывов, срок предупреждения, точность
-  регулярных платежей, время на компанию, предупреждения и сбои.
-
-Никакой подгонки под датасет здесь нет: продуктовая конфигурация фиксирована
-(в том числе множитель интервалов :data:`schema.INTERVAL_SCALE`, подобранный на
-dev-компаниях нашего датасета). Падение на одной компании не останавливает прогон —
-оно попадает в отчёт.
-"""
 from __future__ import annotations
 
 import argparse
@@ -39,12 +18,10 @@ from .backtest import DEFAULT_MODELS, aggregate, calibrate_interval_scale, metri
 from .parallel import make_pool
 from .schema import INTERVAL_SCALE
 
-#: Меняется, когда меняется модель: старый кэш тогда не используется.
 CACHE_VERSION = "2026-10-24g"
 
 
 def discover(path: str | Path) -> list[tuple[str, Any]]:
-    """Найти выписки: [(company_id, путь или DataFrame)]."""
     from .io import read_companies
 
     p = Path(path)
@@ -77,7 +54,6 @@ def _fingerprint(src: Any) -> str:
 
 
 def _job(args: tuple[str, Any, dict[str, Any]]) -> dict[str, Any]:
-    """Бэктест одной компании + боевой прогноз на последнюю дату (с замером времени)."""
     from . import forecast
     from .backtest import backtest
 
@@ -89,7 +65,7 @@ def _job(args: tuple[str, Any, dict[str, Any]]) -> dict[str, Any]:
         r.pop("metrics", None)
         out.update(r)
         out["company_id"] = cid
-    except Exception as exc:  # noqa: BLE001 — сбой одной компании не должен останавливать прогон
+    except Exception as exc:
         out.update(error=f"backtest: {type(exc).__name__}", records={}, recurring={})
     out["secs_backtest"] = round(time.time() - t0, 2)
     t1 = time.time()
@@ -99,7 +75,7 @@ def _job(args: tuple[str, Any, dict[str, Any]]) -> dict[str, Any]:
         out["forecast_ok"] = bool(res["daily"])
         out["forecast_warnings"] = res["warnings"]
         out["forecast_risks"] = len(res["risks"])
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         out["forecast_ok"] = False
         out["forecast_warnings"] = [f"исключение: {type(exc).__name__}"]
     out["secs_forecast"] = round(time.time() - t1, 2)
@@ -109,7 +85,6 @@ def _job(args: tuple[str, Any, dict[str, Any]]) -> dict[str, Any]:
 def run(companies: list[tuple[str, Any]], *, workers: int, cache: Path | None, origins: int = 8, step: int = 21,
         sims: int = 500, seed: int = 42, interval_scale: float | None = None, progress: bool = True
         ) -> list[dict[str, Any]]:
-    """Прогнать компании (параллельно, с кэшем по содержимому выписки и настройкам)."""
     kw = {"horizon": 30, "n_origins": origins, "step": step, "n_sims": sims, "seed": seed,
           "models": DEFAULT_MODELS, "interval_scale": INTERVAL_SCALE if interval_scale is None else interval_scale}
     tag = hashlib.sha1(json.dumps({**kw, "v": CACHE_VERSION}, sort_keys=True, default=str).encode()).hexdigest()[:10]
@@ -140,7 +115,6 @@ def run(companies: list[tuple[str, Any]], *, workers: int, cache: Path | None, o
 
 
 def summarize(results: list[dict[str, Any]], wall_secs: float | None = None) -> dict[str, Any]:
-    """Метрики по моделям + скорость + устойчивость."""
     ok = [r for r in results if not r.get("error")]
     met = aggregate(ok) if ok else {}
     sb = [r.get("secs_backtest", 0.0) for r in results]
@@ -162,7 +136,6 @@ def summarize(results: list[dict[str, Any]], wall_secs: float | None = None) -> 
 
 
 def beats_flat(results: list[dict[str, Any]], model: str = "hybrid") -> dict[str, Any]:
-    """Доля компаний, где модель точнее «остаток не изменится» (средняя |ошибка| по фактическому остатку)."""
     better = total = 0
     for r in results:
         a, b = r["records"].get(model, []), r["records"].get("flat", [])
@@ -211,7 +184,7 @@ def write_report(summary: dict[str, Any], out: Path, name: str, meta: dict[str, 
 
 def _has_tabulate() -> bool:
     try:
-        import tabulate  # noqa: F401
+        import tabulate
         return True
     except ImportError:
         return False

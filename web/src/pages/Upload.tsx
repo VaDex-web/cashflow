@@ -6,7 +6,6 @@ import { useSession } from '../lib/session'
 const MAX_MB = 20
 const REQUIRED_HINT = 'дата, сумма, направление (поступление/списание), контрагент, ИНН, назначение платежа, остаток'
 
-/** Быстрая проверка в браузере — чтобы сразу сказать человеку, что не так с файлом */
 async function precheck(file: File): Promise<string | null> {
   if (!/\.(csv|txt)$/i.test(file.name)) return `Файл «${file.name}» не похож на CSV. Выгрузите выписку из интернет-банка в формате CSV.`
   if (file.size === 0) return 'Файл пустой.'

@@ -1,13 +1,7 @@
-"""Кандидаты для демо из реального датасета: компании, у которых прогноз от последней операции показывает
-вероятный кассовый разрыв через 7–21 день → api/reports/demo_candidates.md.
-
-    CORE_PATH=core python -m api.reports.demo_candidates --workers 4
-"""
 from __future__ import annotations
 
 import os
 
-# один поток BLAS/OpenMP на процесс: иначе воркеры душат друг друга
 for _v in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):
     os.environ.setdefault(_v, "1")
 
@@ -30,7 +24,7 @@ def _one(args: tuple[str, str, int]) -> dict[str, Any] | None:
 
     try:
         r = cc.forecast(path, [], 30, company_id=cid, n_sims=n_sims)
-    except Exception:  # noqa: BLE001
+    except Exception:
         return None
     if not r.get("as_of"):
         return None

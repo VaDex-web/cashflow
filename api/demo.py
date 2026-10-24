@@ -1,13 +1,3 @@
-"""Демо-вход в один клик: у каждого гостя — своя копия демо-компании с подготовленным прогнозом.
-
-При старте сервера готовится скрытый шаблон ``demo-template``: копия демо-компании (``DEMO_COMPANY``, по умолчанию
-S02) с подключёнными источниками и посчитанным прогнозом. Его владелец — служебный пользователь, поэтому снаружи
-он недоступен и гости его не меняют. ``POST /api/auth/demo`` создаёт гостя и клонирует в его компанию строки
-шаблона вместе с сохранённым состоянием прогноза — первый экран открывается без пересчёта.
-
-Компании датасета и синтетики — общие и только для чтения: кто выбирает такую компанию как свою, получает
-личную копию (:func:`personal_copy`), поэтому действия одного посетителя не видны другим.
-"""
 from __future__ import annotations
 
 import datetime as dt
@@ -30,7 +20,6 @@ log = logging.getLogger("api.demo")
 TEMPLATE_ID = "demo-template"
 SYSTEM_OWNER = "__system__"
 GUEST_PREFIX = "guest-"
-#: источники, которые подключаются в демо (тестовые данные — data/synthetic/integrations/<компания>/)
 DEMO_SOURCES = ("tax_calendar", "1c", "bank", "registry")
 _CHILDREN = (Transaction, EventRow, CounterpartyCheck, Document, IntegrationRun)
 
@@ -61,7 +50,6 @@ def _clone_company(session: Session, src: Company, new_id: str, owner: str, orig
 
 
 def prepare_template(session: Session) -> Company | None:
-    """Шаблон демо: копия демо-компании, источники подключены, прогноз посчитан и сохранён."""
     s = get_settings()
     if not s.demo_company:
         return None
@@ -80,7 +68,6 @@ def prepare_template(session: Session) -> Company | None:
 
 
 def cleanup_guests(session: Session) -> int:
-    """Удалить гостей старше DEMO_TTL_HOURS вместе с их компаниями (каскадом)."""
     cutoff = utcnow() - dt.timedelta(hours=get_settings().demo_ttl_hours)
     old = list(session.scalars(select(User).where(User.username.like(f"{GUEST_PREFIX}%"), User.created_at < cutoff)))
     if not old:
@@ -93,7 +80,6 @@ def cleanup_guests(session: Session) -> int:
 
 
 def personal_copy(session: Session, user: str, src: Company) -> Company:
-    """Личная копия общей компании для пользователя (одна на источник: повторный выбор открывает ту же копию)."""
     for c in session.scalars(select(Company).where(Company.owner == user, Company.origin == "copy")):
         if (c.settings or {}).get("dataset_id") == src.id:
             return c
@@ -101,14 +87,13 @@ def personal_copy(session: Session, user: str, src: Company) -> Company:
 
 
 def personalize_users(session: Session) -> int:
-    """Пользователям из API_USERS с общей компанией (``demo:demo:S02``) — своя копия: общие компании только для чтения."""
     n = 0
     for u in list(session.scalars(select(User).where(User.company_id.is_not(None)))):
         if u.username == SYSTEM_OWNER or u.username.startswith(GUEST_PREFIX):
             continue
         try:
             c = svc.get_company(session, u.company_id, u.username)
-        except Exception:  # noqa: BLE001 — компании нет (файл не найден): оставляем как есть
+        except Exception:
             continue
         if c.owner is None:
             u.company_id = personal_copy(session, u.username, c).id
@@ -118,7 +103,6 @@ def personalize_users(session: Session) -> int:
 
 
 def create_guest(session: Session) -> str:
-    """Новый гость со своей копией демо-компании; возвращает логин."""
     cleanup_guests(session)
     tpl = session.get(Company, TEMPLATE_ID) or prepare_template(session)
     if tpl is None:

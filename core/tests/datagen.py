@@ -1,9 +1,3 @@
-"""Мини-генератор синтетических выписок для тестов ядра.
-
-Не путать с генератором демо-данных в ``data/synthetic`` (его ведёт api/) — этот нужен только
-тестам: маленький, детерминированный (seed), с известной «правдой»
-(колонка ``true_category``) и управляемыми граничными случаями.
-"""
 from __future__ import annotations
 
 import sys
@@ -14,7 +8,7 @@ import numpy as np
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from cashflow_core.calendar_ru import is_business_day, shift_to_business_day  # noqa: E402
+from cashflow_core.calendar_ru import is_business_day, shift_to_business_day
 
 BANK = ("ПАО «Банк»", "0068275202")
 FNS = ("Казначейство России (ФНС России)", "7727406020")
@@ -38,16 +32,6 @@ def generate_statement(
     empty_purpose_share: float = 0.02,
     fmt: str = "contract",
 ) -> pd.DataFrame:
-    """Сгенерировать выписку.
-
-    Args:
-        days: длина истории в календарных днях.
-        revenue_level: средняя дневная выручка эквайринга.
-        expense_ratio: множитель расходов (> 1 — компания «проедает» деньги → будет разрыв).
-        giant_client: добавить клиента, дающего > 50% выручки.
-        fmt: "contract" (стандартные колонки) | "dataset" (формат организаторов) | "messy" (русские
-            заголовки, знаковая сумма с запятой, даты ДД.ММ.ГГГГ, дубли, пропуск недели).
-    """
     rng = np.random.default_rng(seed)
     d0 = date.fromisoformat(start)
     end = d0 + timedelta(days=days - 1)
@@ -72,7 +56,6 @@ def generate_statement(
     while d <= end:
         bd = is_business_day(d)
         if bd:
-            # эквайринг за предыдущие дни — на следующий рабочий день
             mult = 1.4 if d.weekday() == 0 else 1.0
             add(d, revenue_level * mult * rng.lognormal(0, 0.25), "in", BANK,
                 f"Зачисление средств по операциям эквайринга. Мерчант №4010196. Дата реестра {d - timedelta(days=1):%d.%m.%Y}",
@@ -129,7 +112,6 @@ def generate_statement(
         return out
     if fmt == "messy":
         m = df.copy()
-        # пропуск недели данных и дубль строки
         gap_start = m["date"].min() + pd.Timedelta(days=days // 2)
         m = m[~m["date"].between(gap_start, gap_start + pd.Timedelta(days=6))]
         m = pd.concat([m, m.iloc[[5]]]).sort_values("date", kind="stable")
@@ -145,5 +127,4 @@ def generate_statement(
 
 
 def to_csv_bytes(df: pd.DataFrame, sep: str = ";", encoding: str = "utf-8-sig") -> bytes:
-    """CSV в байтах (для проверки кодировок и разделителей)."""
     return df.to_csv(sep=sep, index=False).encode(encoding)

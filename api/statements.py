@@ -1,10 +1,3 @@
-"""Приём выписки: проверка файла, терпимый разбор, понятные ошибки на русском.
-
-Сначала быстрая проверка (кодировка, разделитель, колонки), чтобы сразу сказать человеку, что не так.
-Затем чистка: настоящим ядром (``cashflow_core.load_statement``) или собственным разбором (заглушка).
-Понимает формат датасета организаторов (п. 1.1 контракта) и внутренний (п. 1.2), русские заголовки,
-``;``/``,``/табуляцию, BOM, cp1251, знаковую сумму, «Дебет/Кредит», даты ДД.ММ.ГГГГ, суммы «1 234,56».
-"""
 from __future__ import annotations
 
 import csv
@@ -17,7 +10,7 @@ import pandas as pd
 
 
 class StatementError(ValueError):
-    """Ошибка разбора выписки — текст показывается пользователю."""
+    pass
 
 
 ALIASES: dict[str, tuple[str, ...]] = {
@@ -56,7 +49,6 @@ def decode(raw: bytes) -> str:
 
 
 def _sniff(text: str) -> tuple[str, int]:
-    """Разделитель и номер строки заголовка (над таблицей бывает «шапка» выписки)."""
     lines = text.splitlines()[:30]
     for i, line in enumerate(lines):
         low = line.lower()
@@ -81,7 +73,6 @@ def map_columns(headers: list[str]) -> dict[str, str]:
 
 
 def check_header(raw: bytes) -> tuple[str, list[str], dict[str, str], int]:
-    """Проверить файл до разбора. Возвращает (текст, заголовки, сопоставление колонок, строка заголовка)."""
     text = decode(raw)
     delim, hdr = _sniff(text)
     reader = csv.reader(io.StringIO("\n".join(text.splitlines()[hdr:hdr + 1])), delimiter=delim)
@@ -92,9 +83,6 @@ def check_header(raw: bytes) -> tuple[str, list[str], dict[str, str], int]:
         missing.append("дата операции")
     if "amount" not in cols and not ("debit" in cols or "credit" in cols):
         missing.append("сумма")
-    if "amount" in cols and "direction" not in cols and not ("debit" in cols or "credit" in cols):
-        # допустима знаковая сумма — проверим при разборе
-        pass
     if missing:
         raise StatementError(f"Не нашли колонки: {', '.join(missing)}. Есть: {', '.join(h.strip() for h in headers[:12])}. "
                              f"Нужны колонки: {REQUIRED_HINT}.")
@@ -149,7 +137,6 @@ def parse_direction(v: Any) -> str | None:
 
 
 def normalize_row(r: dict[str, Any], cols: dict[str, str] | None = None) -> tuple[dict[str, Any] | None, str | None]:
-    """Одна строка → внутренний формат (п. 1.2) или (None, причина пропуска)."""
     g = (lambda k: r.get(cols[k]) if cols and k in cols else r.get(k))
     d = parse_date(g("date") if g("date") is not None else r.get("operation_date"))
     if d is None:
@@ -179,7 +166,6 @@ def normalize_row(r: dict[str, Any], cols: dict[str, str] | None = None) -> tupl
 
 
 def parse_statement_bytes(raw: bytes, company: str | None = None) -> tuple[list[dict[str, Any]], list[str]]:
-    """Собственный терпимый разбор (используется заглушкой ядра и для проверки)."""
     text, headers, cols, hdr = check_header(raw)
     delim = _sniff(text)[0]
     reader = csv.DictReader(io.StringIO("\n".join(text.splitlines()[hdr:])), delimiter=delim)
@@ -224,7 +210,6 @@ def companies_in_file(raw: bytes) -> list[str]:
 
 
 def frame_from_core(df: pd.DataFrame) -> list[dict[str, Any]]:
-    """Результат ``load_statement`` ядра → строки для хранения."""
     out = []
     for r in df.itertuples(index=False):
         d = r.date.date() if hasattr(r.date, "date") else parse_date(r.date)
@@ -238,7 +223,6 @@ def frame_from_core(df: pd.DataFrame) -> list[dict[str, Any]]:
 
 
 def select_company(raw: bytes, company: str | None) -> bytes:
-    """Из файла с несколькими компаниями (all_operations.csv) оставить одну."""
     text, headers, cols, hdr = check_header(raw)
     delim = _sniff(text)[0]
     lines = text.splitlines()

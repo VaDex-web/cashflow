@@ -1,4 +1,3 @@
-"""Инкрементальное обновление: факт, overdue, дубли, скорость."""
 import time
 from datetime import timedelta
 

@@ -1,8 +1,3 @@
-"""Сквозной сценарий на настоящем ядре cashflow_core (пропускается, если ядро не найдено).
-
-Демо-компания S02: по одной выписке риск 5 ноября низкий; с источниками (налоговый календарь, 1С,
-банк, реестры) — высокий, как и было «на самом деле» (data/synthetic/future/S02.csv).
-"""
 from __future__ import annotations
 
 from api.schemas import ForecastResult, ScenarioResult
@@ -17,7 +12,6 @@ def _risk_on(f: dict, day_from: str, day_to: str) -> float:
 def test_s02_sources_reveal_gap(real):
     h = login(real)
     cid = my_company(real, h)
-    # разрыв в смысле «денег меньше нуля» — как в метриках для жюри
     assert real.put(f"/api/companies/{cid}/settings", headers=h, json={"safety_cushion": 0}).status_code == 200
     base = real.get(f"/api/companies/{cid}/forecast", headers=h).json()
     ForecastResult.model_validate(base)
@@ -65,7 +59,7 @@ def test_dataset_style_upload_real(real):
 
 def test_safety_cushion_raises_risk_earlier(real):
     h = login(real)
-    cid = real.put("/api/me", headers=h, json={"company_id": "S01"}).json()["company_id"]   # своя копия S01
+    cid = real.put("/api/me", headers=h, json={"company_id": "S01"}).json()["company_id"]
     zero = real.put(f"/api/companies/{cid}/settings", headers=h, json={"safety_cushion": 0}).json()
     assert zero["safety_cushion"] == 0
     f0 = real.get(f"/api/companies/{cid}/forecast", headers=h).json()
@@ -78,7 +72,6 @@ def test_safety_cushion_raises_risk_earlier(real):
 
 
 def test_risk_kinds_and_scenario_base_matches_forecast(real):
-    """Порог разрыва 0 ₽, комфортный минимум — отдельный вид риска; база «что если» = основной прогноз."""
     h = login(real)
     cid = my_company(real, h)
     assert real.put(f"/api/companies/{cid}/settings", headers=h, json={"safety_cushion": None}).status_code == 200
@@ -88,7 +81,7 @@ def test_risk_kinds_and_scenario_base_matches_forecast(real):
     assert f["comfort_balance"] > 0
     assert f["risks"] and all(r["kind"] in ("gap", "below_comfort") for r in f["risks"])
     for r in f["risks"]:
-        if r["kind"] == "gap":  # разрыв — остаток ниже нуля хотя бы в части вариантов
+        if r["kind"] == "gap":
             day = next(d for d in f["daily"] if d["date"] == r["date"])
             assert day["balance_low"] < 0
     sc = real.post(f"/api/companies/{cid}/scenarios/run", headers=h,

@@ -1,4 +1,3 @@
-"""Аутентификация: пароли (PBKDF2-SHA256), JWT, доступ только к своим компаниям."""
 from __future__ import annotations
 
 import datetime as dt
@@ -35,10 +34,6 @@ def verify_password(password: str, stored: str) -> bool:
 
 
 def ensure_users(session: Session) -> None:
-    """Создать пользователей из API_USERS («логин:пароль[:компания],…»), если их ещё нет.
-
-    Третья часть — компания пользователя (один пользователь = одна компания), например ``demo:demo:S02``.
-    """
     for item in get_settings().users.split(","):
         if ":" not in item:
             continue
@@ -63,7 +58,6 @@ def create_token(username: str) -> str:
 def authenticate(session: Session, username: str, password: str) -> str | None:
     user = session.scalar(select(User).where(User.username == username))
     if user is None:
-        # одинаковое время ответа для существующего и несуществующего логина
         verify_password(password, hash_password("x", "0" * 32))
         return None
     return create_token(user.username) if verify_password(password, user.password_hash) else None
@@ -88,13 +82,11 @@ def current_user(cred: HTTPAuthorizationCredentials | None = Depends(_bearer),
     return username
 
 
-#: Ответ на попытку изменить общую компанию (датасет, демо): менять можно только свою копию.
 READ_ONLY_MESSAGE = ("Это общая демо-компания: её можно смотреть, но не менять. Изменения сохраняются только "
                      "в вашей копии — выберите компанию как свою или нажмите «Посмотреть демо».")
 
 
 def check_access(company: Company | None, username: str, write: bool = False) -> Company:
-    """Компании из датасета и синтетики — общие и только для чтения, загруженные и копии — только владельцу."""
     if company is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Компания не найдена — загрузите выписку")
     if company.owner is not None and company.owner != username:

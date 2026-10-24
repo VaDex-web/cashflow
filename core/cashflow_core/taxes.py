@@ -1,19 +1,3 @@
-"""Налоговая модель: оценка режима и прогноз квартальных налоговых платежей.
-
-В выписке налоги идут единым налоговым платежом (ЕНП) 28-го числа. Ежемесячная
-«база» (НДФЛ и взносы за сотрудников) ловится регулярными платежами, а
-квартальные/годовые всплески (УСН, налог на прибыль, НДС, ЕСХН) зависят от
-выручки прошлого квартала. Модель:
-
-``excess(месяц m) = ratio(месяц года m) × выручка предыдущего квартала``,
-
-где ``ratio`` оценивается по тому же месяцу прошлого года. Если истории меньше
-года, используется типовая ставка оценённого режима (с пометкой в warnings).
-
-Режим налогообложения в данных не указан и оценивается по признакам:
-доля поступлений «в т.ч. НДС», месяцы всплесков ЕНП и отношение всплеска
-к выручке / прибыли квартала.
-"""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -40,7 +24,7 @@ _REGIME_MONTHS: dict[str, set[int] | None] = {
     "usn_income": {3, 4, 7, 10},
     "usn_income_expense": {3, 4, 7, 10},
     "eshn": {3, 7},
-    "osno": None,      # НДС платится ежемесячно — допустим любой месяц
+    "osno": None,
     "unknown": None,
 }
 
@@ -56,8 +40,6 @@ def _prev_quarter_months(mi: int) -> list[int]:
 
 @dataclass
 class TaxModel:
-    """Сезонная модель налоговых всплесков поверх ежемесячной базы."""
-
     base: float = 0.0
     ratio_by_moy: dict[int, float] = field(default_factory=dict)
     revenue_by_ym: dict[int, float] = field(default_factory=dict)
@@ -66,7 +48,6 @@ class TaxModel:
     history_months: int = 0
 
     def expected_excess(self, mi: int) -> tuple[float, float]:
-        """Ожидаемый всплеск ЕНП в месяце ``mi`` (индекс год*12+месяц-1) и его CV."""
         moy = mi % 12 + 1
         prev_rev = sum(self.revenue_by_ym.get(m, 0.0) for m in _prev_quarter_months(mi))
         if moy in self.ratio_by_moy:
@@ -74,7 +55,6 @@ class TaxModel:
         return 0.0, 0.0
 
     def items(self, start: date, end: date) -> list[dict[str, Any]]:
-        """Плановые налоговые всплески в окне [start, end] для Monte Carlo."""
         out = []
         mi = _ym(start)
         while True:
@@ -91,7 +71,6 @@ class TaxModel:
 
 
 def fit_tax_model(df: pd.DataFrame, as_of: date | None = None) -> TaxModel:
-    """Построить налоговую модель по категоризированной выписке."""
     tm = TaxModel()
     if df is None or not len(df) or "category" not in df.columns:
         return tm
@@ -107,14 +86,13 @@ def fit_tax_model(df: pd.DataFrame, as_of: date | None = None) -> TaxModel:
     if not len(taxes):
         return tm
     tm.anchor_day = int(taxes["date"].dt.day.mode().iloc[0]) if len(taxes) else 28
-    first_full = int(d["ym"].min()) + 1  # первый месяц может быть неполным
+    first_full = int(d["ym"].min()) + 1
     last_full = int(d["ym"].max()) - (0 if (as_of or d["date"].max().date()).day >= 28 else 1)
     months = range(first_full, last_full + 1)
     t_by = taxes.groupby("ym")["amount"].sum()
     totals = np.array([float(t_by.get(m, 0.0)) for m in months])
     if not len(totals):
         return tm
-    # медиана по ВСЕМ месяцам (с нулями): у плательщика «только раз в квартал» база = 0
     tm.base = float(np.median(totals))
     ratios: dict[int, list[float]] = {}
     for m, tot in zip(months, totals):
@@ -123,25 +101,16 @@ def fit_tax_model(df: pd.DataFrame, as_of: date | None = None) -> TaxModel:
         excess = tot - tm.base
         if prev_known and prev_rev > 0 and excess > max(0.3 * tm.base, 5000):
             ratios.setdefault(m % 12 + 1, []).append(excess / prev_rev)
-    # месяцы, в которые по режиму бывают налоговые всплески (остальное — разовые взыскания/пени)
     allowed = _REGIME_MONTHS.get(tm.regime.get("regime", "unknown"))
-    # в ratio берём последний год с бóльшим весом; ограничиваем сверху здравым смыслом
     tm.ratio_by_moy = {moy: float(min(0.2, np.average(v, weights=np.arange(1, len(v) + 1))))
                        for moy, v in ratios.items() if allowed is None or moy in allowed}
     if not tm.ratio_by_moy and tm.regime.get("regime") in ("usn_income",) and tm.history_months < 13:
-        # истории мало: типовая оценка УСН 6% с вычетом взносов (~50%)
         tm.ratio_by_moy = {4: 0.03, 7: 0.03, 10: 0.03}
         tm.regime["fallback_rates"] = True
     return tm
 
 
 def estimate_tax_regime(df: pd.DataFrame) -> dict[str, Any]:
-    """Оценить налоговый режим по выписке.
-
-    Returns:
-        ``{regime, label, confidence, evidence: [строки]}``. Режим — эвристика,
-        не юридический вывод; уверенность честно ниже 1.
-    """
     out: dict[str, Any] = {"regime": "unknown", "label": REGIME_LABELS["unknown"], "confidence": 0.0, "evidence": []}
     if df is None or not len(df) or "category" not in df.columns:
         return out

@@ -1,4 +1,3 @@
-"""Форматирование для текстов на русском: суммы, даты."""
 from __future__ import annotations
 
 from datetime import date
@@ -10,7 +9,6 @@ MONTHS_NOM = ["январь", "февраль", "март", "апрель", "м�
 
 
 def rub(x: float) -> str:
-    """123456.7 → «123 457 ₽» (неразрывные пробелы)."""
     return f"{round(x):,}".replace(",", " ") + " ₽"
 
 
@@ -25,6 +23,5 @@ def dmy(d: date) -> str:
 
 
 def quoted(name: str | None) -> str:
-    """Наименование контрагента для текста: уже с кавычками «» — как есть."""
     name = (name or "").strip()
     return name or "контрагент"

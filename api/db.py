@@ -1,4 +1,3 @@
-"""Хранилище: SQLite через SQLAlchemy — компании, операции, события, проверки контрагентов, состояние прогноза."""
 from __future__ import annotations
 
 import datetime as dt
@@ -24,7 +23,6 @@ class User(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     username: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     password_hash: Mapped[str] = mapped_column(String(256))
-    #: один пользователь = одна компания: та, что открывается после входа
     company_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
@@ -36,12 +34,11 @@ class Company(Base):
     inn: Mapped[str] = mapped_column(String(16), default="")
     legal_form: Mapped[str] = mapped_column(String(16), default="")
     industry: Mapped[str] = mapped_column(String(128), default="")
-    #: владелец (логин); None — общая компания из датасета/синтетики
     owner: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
-    origin: Mapped[str] = mapped_column(String(16), default="upload")       # upload | dataset | synthetic
-    settings: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)     # налоговый режим и т.п.
-    tx_version: Mapped[int] = mapped_column(Integer, default=0)              # растёт при новых операциях
-    warnings: Mapped[list[str]] = mapped_column(JSON, default=list)          # предупреждения парсера
+    origin: Mapped[str] = mapped_column(String(16), default="upload")
+    settings: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    tx_version: Mapped[int] = mapped_column(Integer, default=0)
+    warnings: Mapped[list[str]] = mapped_column(JSON, default=list)
     created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
@@ -56,7 +53,7 @@ class Transaction(Base):
     counterparty_inn: Mapped[str] = mapped_column(String(16), default="")
     purpose: Mapped[str] = mapped_column(Text, default="")
     balance_eod: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
-    batch: Mapped[int] = mapped_column(Integer, default=0)                   # 0 — выписка, n — POST /transactions
+    batch: Mapped[int] = mapped_column(Integer, default=0)
 
 
 class EventRow(Base):
@@ -74,11 +71,8 @@ class EventRow(Base):
     counterparty: Mapped[Optional[str]] = mapped_column(String(256), nullable=True)
     counterparty_inn: Mapped[str] = mapped_column(String(16), default="")
     note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    #: какая интеграция создала событие: tax_calendar, 1c, bank, registry, contracts, invoices, manual
     origin: Mapped[str] = mapped_column(String(16), default="manual")
-    #: статус выставлен пользователем вручную — синхронизация его не перетирает
     status_locked: Mapped[bool] = mapped_column(default=False)
-    #: фактическая оплата (план-факт): дата и сумма
     paid_date: Mapped[Optional[dt.date]] = mapped_column(Date, nullable=True)
     paid_amount: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     created_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
@@ -86,15 +80,13 @@ class EventRow(Base):
 
 
 class CounterpartyCheck(Base):
-    """Результат проверки контрагента по открытым реестрам."""
-
     __tablename__ = "counterparty_checks"
     __table_args__ = (UniqueConstraint("company_id", "inn", name="uq_cp_check"),)
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     company_id: Mapped[str] = mapped_column(ForeignKey("companies.id", ondelete="CASCADE"), index=True)
     inn: Mapped[str] = mapped_column(String(16))
     name: Mapped[str] = mapped_column(String(256), default="")
-    risk_level: Mapped[str] = mapped_column(String(8), default="low")       # low | medium | high
+    risk_level: Mapped[str] = mapped_column(String(8), default="low")
     delay_days: Mapped[int] = mapped_column(Integer, default=0)
     reasons: Mapped[list[str]] = mapped_column(JSON, default=list)
     details: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
@@ -113,8 +105,6 @@ class IntegrationRun(Base):
 
 
 class Document(Base):
-    """Загруженный файл источника (выгрузка 1С, договоры, счета, данные банка/реестров)."""
-
     __tablename__ = "documents"
     __table_args__ = (UniqueConstraint("company_id", "kind", name="uq_doc"),)
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
@@ -126,14 +116,12 @@ class Document(Base):
 
 
 class ForecastStateRow(Base):
-    """Сохранённое состояние ядра (для update_forecast без полного пересчёта) и последний прогноз."""
-
     __tablename__ = "forecast_states"
     company_id: Mapped[str] = mapped_column(ForeignKey("companies.id", ondelete="CASCADE"), primary_key=True)
     key: Mapped[str] = mapped_column(String(128))
     blob: Mapped[Optional[bytes]] = mapped_column(LargeBinary, nullable=True)
     result: Mapped[Optional[dict[str, Any]]] = mapped_column(JSON, nullable=True)
-    notes: Mapped[list[str]] = mapped_column(JSON, default=list)            # предупреждения API (просрочки и т.п.)
+    notes: Mapped[list[str]] = mapped_column(JSON, default=list)
     updated_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
 
@@ -150,7 +138,7 @@ def init_db(url: str | None = None) -> None:
     _engine = create_engine(url, **kw)
     if url.startswith("sqlite"):
         @event.listens_for(_engine, "connect")
-        def _fk(dbapi_conn, _):  # noqa: ANN001
+        def _fk(dbapi_conn, _):
             cur = dbapi_conn.cursor()
             cur.execute("PRAGMA foreign_keys=ON")
             cur.execute("PRAGMA journal_mode=WAL")
@@ -161,7 +149,6 @@ def init_db(url: str | None = None) -> None:
 
 
 def _migrate(engine: Any) -> None:
-    """Добавить новые колонки в уже созданную базу (SQLite не делает этого в create_all)."""
     from sqlalchemy import inspect, text
 
     insp = inspect(engine)

@@ -1,4 +1,3 @@
-"""Бизнес-логика API: компании, операции, события, состояние прогноза, интеграции, план-факт."""
 from __future__ import annotations
 
 import copy
@@ -33,7 +32,7 @@ from .textfmt import day_month, rub
 
 log = logging.getLogger("api.service")
 
-_cache: dict[str, tuple[str, Any]] = {}          # company_id → (ключ, состояние ядра)
+_cache: dict[str, tuple[str, Any]] = {}
 _locks: dict[str, threading.Lock] = defaultdict(threading.Lock)
 
 
@@ -45,7 +44,6 @@ def now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
 
-# --------------------------------------------------------------------------- справочники датасета
 def _read_companies_csv(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
         return []
@@ -54,7 +52,6 @@ def _read_companies_csv(path: Path) -> list[dict[str, Any]]:
 
 
 def known_companies() -> list[dict[str, Any]]:
-    """Компании из data/raw/companies.csv и data/synthetic/companies.csv."""
     s = get_settings()
     out = []
     for origin, base in (("dataset", s.raw_dir), ("synthetic", s.synthetic_dir)):
@@ -69,9 +66,7 @@ def _known(cid: str) -> dict[str, Any] | None:
     return next((r for r in known_companies() if r["company_id"] == cid), None)
 
 
-# --------------------------------------------------------------------------- компании и операции
 def _parse(raw: bytes, company: str | None = None) -> tuple[list[dict[str, Any]], list[str]]:
-    """Проверка файла + чистка ядром (или собственным разбором в режиме заглушки)."""
     check_header(raw)
     core = get_core()
     if core.name == "stub":
@@ -94,7 +89,6 @@ def _store_rows(session: Session, company_id: str, rows: Iterable[dict[str, Any]
 
 
 def import_known(session: Session, cid: str) -> Company | None:
-    """Компания из датасета/синтетики: загружается из файла при первом обращении."""
     meta = _known(cid)
     if meta is None or not Path(meta["_path"]).exists():
         return None
@@ -115,7 +109,6 @@ def import_known(session: Session, cid: str) -> Company | None:
 
 
 def get_company(session: Session, cid: str, user: str, write: bool = False) -> Company:
-    """Компания с проверкой доступа; ``write=True`` — для изменений (общие компании только для чтения)."""
     from .security import check_access
 
     with _locks[f"import:{cid}"]:
@@ -146,7 +139,7 @@ def create_company(session: Session, raw: bytes, filename: str, user: str, compa
     session.add(c)
     session.flush()
     n = _store_rows(session, cid, rows, 0)
-    _user(session, user).company_id = cid        # один пользователь = одна компания: новая выписка — его компания
+    _user(session, user).company_id = cid
     session.commit()
     log.info("company uploaded: %s rows=%d", cid, n)
     return c, n, warnings
@@ -168,7 +161,6 @@ def _user(session: Session, username: str) -> User:
 
 
 def list_companies(session: Session, user: str, demo: bool = False) -> list[dict[str, Any]]:
-    """Один пользователь = одна компания. Список компаний датасета и демо — только в демо-режиме (``demo=true``)."""
     out = []
     u = _user(session, user)
     if u.company_id:
@@ -200,8 +192,6 @@ def me(session: Session, user: str) -> dict[str, Any]:
 
 
 def set_my_company(session: Session, user: str, cid: str) -> dict[str, Any]:
-    """Демо-переключатель: сделать компанию «моей». Общая компания (датасет, демо) не меняется —
-    пользователь получает свою копию, и все его изменения остаются в ней."""
     from .demo import personal_copy
 
     c = get_company(session, cid, user)
@@ -227,7 +217,6 @@ def as_of_of(session: Session, company: Company) -> date | None:
     return session.scalar(select(func.max(Transaction.date)).where(Transaction.company_id == company.id))
 
 
-# --------------------------------------------------------------------------- события
 def to_event(r: EventRow) -> Event:
     return Event(id=r.id, type=r.type, direction=r.direction, amount=r.amount, date=r.date, source=r.source,
                  status=r.status, counterparty=r.counterparty, note=r.note)
@@ -275,7 +264,6 @@ def delete_event(session: Session, company: Company, event_id: str) -> None:
 
 
 def _dup_of(rows: list[EventRow], e: SourceEvent, origin: str) -> EventRow | None:
-    """То же событие из другого источника (зарплата из 1С и из банка, платёжка = счёт поставщика)."""
     for r in rows:
         if r.origin == origin or r.direction != e.direction:
             continue
@@ -326,7 +314,6 @@ def checks_map(session: Session, company: Company) -> dict[str, dict[str, Any]]:
     return out
 
 
-# --------------------------------------------------------------------------- контекст для интеграций
 def context(session: Session, company: Company, df: pd.DataFrame | None = None) -> CompanyContext:
     s = get_settings()
     docs = {d.kind: d.content for d in session.scalars(select(Document).where(Document.company_id == company.id))}
@@ -339,13 +326,10 @@ def context(session: Session, company: Company, df: pd.DataFrame | None = None) 
                           core=get_core())
 
 
-# --------------------------------------------------------------------------- настройки владельца
 TAX_REGIMES = ("usn_income", "usn_income_expense", "osno", "eshn")
 
 
 def default_cushion(df: pd.DataFrame) -> float:
-    """Комфортный минимум по умолчанию — расходы примерно за 7 дней (средние за последние 90 дней,
-    без переводов между своими счетами)."""
     if df is None or not len(df):
         return 0.0
     d = df[(df["direction"] == "out") & ~df["purpose"].astype(str).str.contains("собственн", case=False, regex=False)]
@@ -360,7 +344,6 @@ def default_cushion(df: pd.DataFrame) -> float:
 
 
 def cushion_of(session: Session, company: Company, df: pd.DataFrame | None = None) -> tuple[float, float, bool]:
-    """(действующий порог, порог по умолчанию, задан ли владельцем)."""
     st = company.settings or {}
     custom = st.get("safety_cushion")
     default = default_cushion(company_df(session, company) if df is None else df)
@@ -377,7 +360,7 @@ def company_settings(session: Session, company: Company) -> dict[str, Any]:
         from .integrations import TaxCalendar
 
         est = TaxCalendar().regime(context(session, company))
-    except Exception:  # noqa: BLE001
+    except Exception:
         est = None
     return {"safety_cushion": eff, "safety_cushion_default": default, "safety_cushion_custom": custom,
             "tax_regime": regime, "tax_regime_estimated": est}
@@ -399,7 +382,6 @@ def update_settings(session: Session, company: Company, data: dict[str, Any]) ->
     return company_settings(session, company)
 
 
-# --------------------------------------------------------------------------- состояние прогноза
 def _event_dicts(rows: list[EventRow]) -> list[dict[str, Any]]:
     return [{"id": r.id, "type": r.type, "direction": r.direction, "amount": r.amount, "date": r.date.isoformat(),
              "source": r.source, "status": r.status, "counterparty": r.counterparty, "note": r.note,
@@ -407,14 +389,12 @@ def _event_dicts(rows: list[EventRow]) -> list[dict[str, Any]]:
 
 
 def _key(company: Company, events: list[dict[str, Any]], checks: dict[str, Any], horizon: int, cushion: float = 0.0) -> str:
-    # "risk-v3": порог разрыва 0 ₽ + комфортный минимум отдельно — старые сохранённые состояния пересобираются
     blob = json.dumps(["risk-v3", events, checks, horizon, get_settings().registry_delay_days, round(cushion, 2)], sort_keys=True,
                       ensure_ascii=False, default=str)
     return f"{get_core().name}:{company.tx_version}:{hashlib.sha1(blob.encode()).hexdigest()[:16]}"
 
 
 def invalidate(company_id: str) -> None:
-    """События или проверки изменились: следующий прогноз пересоберёт состояние (категоризатор переиспользуется)."""
     item = _cache.get(company_id)
     if item:
         _cache[company_id] = ("stale:" + item[0], item[1])
@@ -444,7 +424,7 @@ def get_state(session: Session, company: Company, horizon: int = 30) -> tuple[An
                 state = pickle.loads(st_row.blob)
                 _cache[company.id] = (key, state)
                 return state, notes
-            except Exception:  # noqa: BLE001 — устаревший формат состояния: пересоберём
+            except Exception:
                 log.warning("state unpickle failed for %s", company.id)
         base = None
         if item and item[0].split(":")[-2] == str(company.tx_version) and not isinstance(item[1], dict):
@@ -459,7 +439,7 @@ def get_state(session: Session, company: Company, horizon: int = 30) -> tuple[An
 def _save_state(session: Session, company: Company, key: str, state: Any, result: dict[str, Any] | None = None) -> None:
     try:
         blob = pickle.dumps(state)
-    except Exception:  # noqa: BLE001
+    except Exception:
         blob = None
     row = session.get(ForecastStateRow, company.id)
     if row is None:
@@ -532,11 +512,9 @@ def scenario(session: Session, company: Company, sc: dict[str, Any], horizon: in
     notes = notes + adj_notes + _cushion_note(session, company)
     sc = copy.deepcopy(sc)
     if sc["type"] == "client_delay":
-        # id события из /events → его контрагент: ядро сдвинет все поступления клиента (регулярные и счета)
         target = str(sc["params"]["counterparty_or_event_id"]).strip()
         row = session.scalar(select(EventRow).where(EventRow.company_id == company.id, EventRow.id == target))
         sc["params"]["counterparty_or_event_id"] = (row.counterparty or target) if row is not None else target
-    # поправка по реестрам входит и в базу, и в сценарий: база совпадает с GET /forecast
     res = get_core().scenario(state, sc, horizon, base_adjustment=adj)
     extra = notes + _api_notes(session, company)
     return {"base": _finish(res["base"], company, extra), "scenario": _finish(res["scenario"], company, extra),
@@ -556,7 +534,6 @@ def categories(session: Session, company: Company, limit: int | None = None) -> 
 
 
 def add_transactions(session: Session, company: Company, rows_in: list[dict[str, Any]]) -> dict[str, Any]:
-    """Новые операции → update_forecast без полного пересчёта; статусы событий — в хранилище."""
     if not rows_in:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Передайте хотя бы одну операцию")
     if len(rows_in) > 5000:
@@ -578,7 +555,6 @@ def add_transactions(session: Session, company: Company, rows_in: list[dict[str,
     company.tx_version += 1
     batch = (session.scalar(select(func.max(Transaction.batch)).where(Transaction.company_id == company.id)) or 0) + 1
     _store_rows(session, company.id, rows, batch)
-    # статусы событий, которые ядро сопоставило с новыми операциями
     st_events = {e.get("id"): e.get("status") for e in core.state_events(new_state)}
     for r in event_rows(session, company):
         s = st_events.get(r.id)
@@ -587,7 +563,7 @@ def add_transactions(session: Session, company: Company, rows_in: list[dict[str,
     session.commit()
     _reconcile(session, company, company_df(session, company), as_of_of(session, company))
     status_by_id = {r.id: r.status for r in event_rows(session, company)}
-    for e in core.state_events(new_state):          # те же статусы — в состояние ядра (без пересборки)
+    for e in core.state_events(new_state):
         if e.get("id") in status_by_id:
             e["status"] = status_by_id[e["id"]]
     ev = _event_dicts(event_rows(session, company))
@@ -595,7 +571,6 @@ def add_transactions(session: Session, company: Company, rows_in: list[dict[str,
     _cache[company.id] = (key, new_state)
     _save_state(session, company, key, new_state)
     extra = [f"Принято операций: {len(rows)}" + (f", с ошибками: {len(errors)} ({'; '.join(errors[:3])})" if errors else "")]
-    # прогноз по обновлённому состоянию (статусы событий сверены, поправка реестров — как в /forecast)
     adj, adj_notes = _registry_adjustment(session, company)
     upd_warn = list(res.get("warnings") or [])
     res = core.forecast(new_state, 30, adj)
@@ -603,7 +578,6 @@ def add_transactions(session: Session, company: Company, rows_in: list[dict[str,
     return _finish(res, company, notes + adj_notes + extra + _api_notes(session, company))
 
 
-# --------------------------------------------------------------------------- интеграции
 def sync(session: Session, company: Company, name: str) -> dict[str, Any]:
     integs = all_integrations(get_settings().registry_delay_days)
     if name not in integs or name == "manual":
@@ -630,7 +604,6 @@ def sync(session: Session, company: Company, name: str) -> dict[str, Any]:
 
 
 def _annotate_risky(session: Session, company: Company) -> None:
-    """Пометить в note события-поступления от проблемных контрагентов (видно пользователю)."""
     checks = checks_map(session, company)
     for r in event_rows(session, company):
         chk = None
@@ -678,7 +651,6 @@ def counterparty_checks(session: Session, company: Company) -> list[dict[str, An
                                      .order_by(CounterpartyCheck.risk_level))]
 
 
-# --------------------------------------------------------------------------- план-факт
 def _views(rows: list[EventRow]) -> list[pf.EventView]:
     return [pf.EventView(id=r.id, type=r.type, direction=r.direction, amount=r.amount, date=r.date, source=r.source,
                          status=r.status, counterparty=r.counterparty or "", counterparty_inn=r.counterparty_inn or "",
@@ -687,7 +659,6 @@ def _views(rows: list[EventRow]) -> list[pf.EventView]:
 
 
 def _reconcile(session: Session, company: Company, df: pd.DataFrame, as_of: date | None) -> tuple[list[EventRow], list[pf.Match]]:
-    """Сверить события с выпиской. Возвращает события, ставшие просроченными, и все совпадения."""
     if as_of is None:
         return [], []
     rows = event_rows(session, company)
@@ -717,7 +688,6 @@ def plan_fact(session: Session, company: Company, weeks: int = 8, period: str = 
     before = (row.result or {}).get("risks") if row is not None and row.result else None
     newly_overdue, matches = _reconcile(session, company, df, as_of)
     if newly_overdue:
-        # просрочка → пересчёт прогноза и повторная проверка риска
         invalidate(company.id)
         after = forecast(session, company, 30).get("risks", [])
         names = ", ".join(f"{r.counterparty or r.type} {rub(r.amount)} ({day_month(r.date)})" for r in newly_overdue[:3])
@@ -733,7 +703,7 @@ def plan_fact(session: Session, company: Company, weeks: int = 8, period: str = 
     try:
         state, _ = get_state(session, company, 30)
         recurring = get_core().forecast(state, 30).get("recurring", []) if get_core().name != "stub" else []
-    except Exception:  # noqa: BLE001 — план-факт работает и без регулярных платежей
+    except Exception:
         log.warning("recurring unavailable for plan-fact")
     rows = event_rows(session, company)
     return pf.build(df, _views(rows), recurring, as_of, matches, weeks=weeks, period=period)

@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { EventSource, Severity } from '../types'
 
-/** Кнопка «?» с объяснением «как посчитано» */
 export function Hint({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLSpanElement>(null)

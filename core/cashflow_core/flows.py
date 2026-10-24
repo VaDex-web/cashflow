@@ -1,19 +1,3 @@
-"""Модели «остаточных» дневных потоков (то, что не регулярные платежи и не налоги).
-
-Каждая модель умеет ``fit(y)`` и ``forecast(y_context, horizon)``: прогноз на
-``horizon`` дней вперёд от последней даты ``y_context``. Это позволяет честно
-получать ошибки прогнозов «из прошлого» (rolling origin) и использовать их
-как эмпирическое распределение ошибок для Monte Carlo (:func:`error_paths`).
-
-Модели:
-
-* :class:`NaiveRepeat` — повтор последних 28 дней (с выравниванием по дню недели);
-* :class:`SeasonalProfile` — ETS-подобная: сглаженный уровень × профиль типа дня
-  (день недели, первый рабочий день после выходных, нерабочий день) × годовая
-  сезонность «как год назад» (если истории ≥ 400 дней);
-* :class:`GBMFlow` — HistGradientBoosting (Poisson) на календарных признаках,
-  уровнях на дату прогноза и значениях год назад; прямой многошаговый прогноз.
-"""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -26,7 +10,6 @@ from .calendar_ru import calendar_features
 
 
 def _window_mean(c: np.ndarray, a: int, b: int) -> float:
-    """Среднее y[a:b] по кумулятивной сумме c (c[i] = sum y[:i]); NaN если окно вне данных."""
     a, b = max(a, 0), min(b, len(c) - 1)
     if b <= a:
         return np.nan
@@ -38,8 +21,6 @@ def _future_index(y: pd.Series, horizon: int) -> pd.DatetimeIndex:
 
 
 class NaiveRepeat:
-    """Наивный прогноз: повтор последних ``window`` дней (28 — сохраняет день недели)."""
-
     name = "naive"
 
     def __init__(self, window: int = 28) -> None:
@@ -58,14 +39,12 @@ class NaiveRepeat:
 
 @dataclass
 class SeasonalProfile:
-    """ETS-подобная модель: уровень (экспоненциальное сглаживание) × профиль дня × годовая сезонность."""
-
     halflife: float = 20.0
     profile_days: int = 182
     use_yoy: bool = True
     yoy_shrink: float = 0.8
-    yoy_max: float = 5.0          # ограничение годового коэффициента сверху
-    yoy_eps_share: float = 0.0    # сглаживание: + доля среднего за год к числителю и знаменателю
+    yoy_max: float = 5.0
+    yoy_eps_share: float = 0.0
     name: str = "ets"
 
     def fit(self, y: pd.Series) -> "SeasonalProfile":
@@ -97,7 +76,6 @@ class SeasonalProfile:
 
     @classmethod
     def _factor_vec(cls, f: dict[Any, float], types: np.ndarray) -> np.ndarray:
-        """Векторно: коэффициент дня для массива (dow, is_business_day, after_break)."""
         table = np.array([cls._factor(f, dow, bd, ab) for bd in (0, 1) for dow in range(7) for ab in (0, 1)])
         t = types.astype(int)
         return table[t[:, 1] * 14 + t[:, 0] * 2 + t[:, 2]]
@@ -135,13 +113,12 @@ class SeasonalProfile:
             eps = self.yoy_eps_share * float(np.mean(y.values[-364:]))
             if np.isfinite(base_ly) and base_ly + eps > 0:
                 for k in range(horizon):
-                    j = n + k - 364  # индекс «того же дня» год назад (52 недели)
+                    j = n + k - 364
                     tgt = _window_mean(c, j - 3, j + 4)
                     if np.isfinite(tgt):
                         r = float(np.clip((tgt + eps) / (base_ly + eps), 1 / self.yoy_max, self.yoy_max)) ** self.yoy_shrink
                         pred[k] *= r
                 if level <= 0 and eps > 0:
-                    # «мёртвый сезон»: уровень ≈ 0, но год назад в эти дни были деньги — берём их как прогноз
                     for k in range(horizon):
                         j = n + k - 364
                         tgt = _window_mean(c, j - 3, j + 4)
@@ -152,8 +129,6 @@ class SeasonalProfile:
 
 @dataclass
 class GBMFlow:
-    """Градиентный бустинг (Poisson) с прямым многошаговым прогнозом."""
-
     leads: tuple[int, ...] = (1, 7, 14, 21, 30)
     seed: int = 42
     name: str = "gbm"
@@ -196,7 +171,6 @@ class GBMFlow:
         t_pos, o_pos = np.concatenate(t_list), np.concatenate(o_list)
         X = self._features(y.values, c, ext_idx, t_pos, o_pos, cal)
         target = y.values[t_pos]
-        # признаки без вариации (например, «год назад» при короткой истории) ломают биннинг
         self._cols = np.array([np.unique(col[np.isfinite(col)]).size >= 2 for col in X.T])
         X = X[:, self._cols]
         self.model = HistGradientBoostingRegressor(
@@ -218,7 +192,7 @@ class GBMFlow:
         t_pos = np.arange(n, n + horizon)
         o_pos = np.full(horizon, n - 1)
         X = self._features(y.values, c, ext_idx, t_pos, o_pos, cal)
-        X[:, 0] = np.minimum(X[:, 0], self.max_lead)  # за пределами обученных горизонтов — как на 30-м дне
+        X[:, 0] = np.minimum(X[:, 0], self.max_lead)
         return np.maximum(self.model.predict(X[:, self._cols]), 0.0)
 
 
@@ -232,13 +206,6 @@ MODEL_FACTORIES = {
 def error_paths(y: pd.Series, model_name: str, horizon: int, *, n_origins: int = 30, step: int = 7,
                 seed: int = 42, refit_every: int = 182, y_true: pd.Series | None = None
                 ) -> tuple[np.ndarray, list[pd.Timestamp]]:
-    """Ошибки прогнозов с прошлых дат отсечения: матрица (n_origins × horizon) = факт − прогноз.
-
-    Дата отсечения сдвигается с шагом ``step`` дней назад от «последней возможной»
-    (чтобы горизонт целиком был в истории); шаг 7 сохраняет день недели текущего
-    прогноза. Модель переобучается на данных до отсечения (для GBM — раз в
-    ``refit_every`` дней ради скорости), так что ошибки честные, out-of-sample.
-    """
     n = len(y)
     last_origin = n - 1 - horizon
     origins = [last_origin - step * j for j in range(n_origins)]

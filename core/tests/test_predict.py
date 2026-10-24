@@ -1,4 +1,3 @@
-"""predict: машинно-читаемый прогноз, детерминированно, без падений."""
 import csv
 import json
 
@@ -10,12 +9,12 @@ from datagen import generate_statement
 
 def _dataset(tmp):
     a = generate_statement(days=300, seed=1, fmt="dataset")
-    b = generate_statement(days=40, seed=2, fmt="dataset")       # короткая история
+    b = generate_statement(days=40, seed=2, fmt="dataset")
     b["company_id"] = "T002"
-    b["payment_purpose"] = ""                                      # пустые назначения
-    b.loc[b.index[:5], "counterparty_inn"] = ""                    # пустые ИНН
+    b["payment_purpose"] = ""
+    b.loc[b.index[:5], "counterparty_inn"] = ""
     c = a.iloc[:1].copy()
-    c["company_id"] = "T003"                                       # одна строка
+    c["company_id"] = "T003"
     allops = pd.concat([a, b, c]).drop(columns=["true_category"])
     f = tmp / "all_operations.csv"
     allops.to_csv(f, sep=";", index=False, encoding="utf-8-sig")

@@ -1,4 +1,3 @@
-"""Единый интерфейс источников данных: ``Integration.fetch(company) -> list[Event]``."""
 from __future__ import annotations
 
 import hashlib
@@ -14,7 +13,6 @@ import pandas as pd
 
 from ..schemas import Event
 
-# --------------------------------------------------------------------------- производственный календарь РФ
 _HOLIDAYS = {
     2024: ["01-01", "01-02", "01-03", "01-04", "01-05", "01-08", "02-23", "03-08", "04-29", "04-30", "05-01",
            "05-09", "05-10", "06-12", "11-04", "12-30", "12-31"],
@@ -40,7 +38,6 @@ def is_business_day(d: date) -> bool:
 
 
 def next_business_day(d: date) -> date:
-    """Срок, выпавший на выходной, переносится на следующий рабочий день (НК РФ, ст. 6.1)."""
     while not is_business_day(d):
         d += timedelta(days=1)
     return d
@@ -52,22 +49,17 @@ def prev_business_day(d: date) -> date:
     return d
 
 
-# --------------------------------------------------------------------------- событие источника
 class SourceEvent(Event):
-    """Event из контракта + служебные поля (в ответы API не попадают)."""
-
     counterparty_inn: str = ""
 
 
 def event_id(prefix: str, *parts: Any) -> str:
-    """Детерминированный id: повторная синхронизация обновляет событие, а не дублирует."""
     raw = "|".join(str(p) for p in parts)
     slug = re.sub(r"[^0-9A-Za-zА-Яа-я]+", "-", raw).strip("-")[:40]
     h = hashlib.sha1(raw.encode("utf-8")).hexdigest()[:6]
     return f"{prefix}-{slug}-{h}" if slug else f"{prefix}-{h}"
 
 
-# --------------------------------------------------------------------------- контекст компании
 @dataclass
 class CompanyContext:
     company_id: str
@@ -75,19 +67,18 @@ class CompanyContext:
     inn: str = ""
     legal_form: str = ""
     industry: str = ""
-    df: pd.DataFrame = field(default_factory=pd.DataFrame)   # операции: date, amount, direction, counterparty_*, purpose, balance_eod
-    as_of: Optional[date] = None                              # дата последней операции
+    df: pd.DataFrame = field(default_factory=pd.DataFrame)
+    as_of: Optional[date] = None
     settings: dict[str, Any] = field(default_factory=dict)
-    documents: dict[str, bytes] = field(default_factory=dict)  # загруженные файлы источников по kind
-    fixtures_dir: Optional[Path] = None                       # data/synthetic/integrations/<id>
-    core: Any = None                                          # ядро (для оценки налогового режима)
+    documents: dict[str, bytes] = field(default_factory=dict)
+    fixtures_dir: Optional[Path] = None
+    core: Any = None
     categorized: Optional[pd.DataFrame] = None
 
     FIXTURE_FILES = {"1c": "1c_export.json", "bank": "bank.json", "registry": "registry.json",
                      "contracts": "contracts.json", "invoices": "invoices.csv"}
 
     def document(self, kind: str) -> Optional[bytes]:
-        """Загруженный пользователем файл источника, иначе тестовые данные из data/synthetic/integrations."""
         if kind in self.documents:
             return self.documents[kind]
         if self.fixtures_dir is not None:
@@ -109,7 +100,7 @@ class CompanyContext:
             if self.core is not None and len(self.df):
                 try:
                     self.categorized = self.core.categorize(self.df)
-                except Exception:  # noqa: BLE001
+                except Exception:
                     self.categorized = categorize_simple(self.df)
             else:
                 self.categorized = categorize_simple(self.df) if len(self.df) else self.df
@@ -117,8 +108,6 @@ class CompanyContext:
 
 
 class Integration(ABC):
-    """Источник данных для прогноза. Каждое событие несёт ``source`` — он показывается пользователю."""
-
     name: str = ""
     title: str = ""
     source: str = "manual"
@@ -126,7 +115,7 @@ class Integration(ABC):
 
     @abstractmethod
     def fetch(self, company: CompanyContext) -> list[Event]:
-        """Ожидаемые события компании из источника (по контракту Event)."""
+        pass
 
     def message(self, company: CompanyContext, events: list[Event]) -> str:
         return ""
@@ -143,7 +132,6 @@ def as_date(v: Any) -> Optional[date]:
 
 
 def pick(d: dict[str, Any], *keys: str, default: Any = None) -> Any:
-    """Первое непустое значение по любому из синонимов ключа (рус./англ.)."""
     low = {str(k).strip().lower(): v for k, v in d.items()}
     for k in keys:
         v = low.get(k.lower())
@@ -160,7 +148,6 @@ def to_float(v: Any, default: float = 0.0) -> float:
 
 
 def counterparty_of(v: Any) -> tuple[str, str]:
-    """{"Наименование", "ИНН"} | строка → (имя, ИНН)."""
     if isinstance(v, dict):
         return str(pick(v, "Наименование", "name", "Name", default="") or ""), str(pick(v, "ИНН", "inn", default="") or "")
     return str(v or ""), ""

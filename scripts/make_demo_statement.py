@@ -1,10 +1,3 @@
-"""Выписка компании из датасета организаторов «по состоянию на дату» — для демо прогноза из прошлого.
-
-    python scripts/make_demo_statement.py C124 2025-09-16
-    → data/demo/C124_по_2025-09-16.csv  (тот же формат: UTF-8 с BOM, «;»; только операции до даты включительно)
-
-Файл производный от data/raw и в git не попадает (data/demo/ в .gitignore).
-"""
 from __future__ import annotations
 
 import argparse
@@ -15,7 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap = argparse.ArgumentParser(description="Выписка компании из датасета организаторов по состоянию на дату")
     ap.add_argument("company", help="company_id, например C124")
     ap.add_argument("until", help="последняя дата операций, YYYY-MM-DD")
     ap.add_argument("--raw", default=str(ROOT / "data" / "raw" / "statements"))

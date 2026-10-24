@@ -1,10 +1,3 @@
-"""Ручной ввод: событие из формы (POST /events) или из фразы предпринимателя.
-
-``parse_text("клиент обещал заплатить 300 000 ₽ 20-го", today)`` → поступление 300 000 ₽ на ближайшее 20-е.
-Понимает суммы («300 000 ₽», «300 тыс», «1,5 млн», «300к»), даты («20-го», «20 числа», «20.11», «20 ноября»,
-«в декабре», «завтра», «через 2 недели»), направление по смыслу (клиент обещал/придёт/вернут — поступление;
-куплю/оплатить/штраф/ремонт — списание), контрагента в кавычках «…» или после ООО/АО/ИП.
-"""
 from __future__ import annotations
 
 import calendar
@@ -34,7 +27,7 @@ def _amount(text: str) -> float | None:
             continue
         tail = text[m.end(1):m.end(1) + 3]
         if not mult and re.match(r"\s*-?\s*(го|е|ого|числ)", text[m.end(1):m.end(1) + 6]):
-            continue                                    # «20-го», «20 числа» — это дата
+            continue
         if re.match(r"\.\d", tail) or re.match(r"\s*(январ|феврал|март|апрел|ма[яй]|июн|июл|август|сентябр|октябр|ноябр|декабр)", text[m.end(1):m.end(1) + 10], re.I):
             continue
         if mult.startswith("млн") or mult.startswith("миллион"):
@@ -97,7 +90,6 @@ def _date(text: str, today: date, direction: str) -> tuple[date, str]:
     if m:
         mo = next(i + 1 for i, s in enumerate(_MONTH_STEMS) if m.group(1).startswith(s))
         y = today.year if mo > today.month else today.year + 1
-        # списание — консервативно в начале месяца, поступление — в конце
         d = date(y, mo, 1) if direction == "out" else date(y, mo, calendar.monthrange(y, mo)[1])
         return d, m.group(0) + (" (берём начало месяца)" if direction == "out" else " (берём конец месяца)")
     return today + timedelta(days=7), "дата не указана — через неделю"
@@ -115,7 +107,6 @@ def _counterparty(text: str) -> str | None:
 
 
 def parse_text(text: str, today: date) -> tuple[EventCreate, str]:
-    """Фраза → черновик события и пояснение, как фраза понята."""
     low = text.lower()
     in_score = sum(w in low for w in _IN_WORDS)
     out_score = sum(w in low for w in _OUT_WORDS)
@@ -144,8 +135,6 @@ def parse_text(text: str, today: date) -> tuple[EventCreate, str]:
 
 
 class Manual(Integration):
-    """Ручной ввод не синхронизируется: события приходят через POST /events."""
-
     name = "manual"
     title = "Ручной ввод"
     source = "manual"

@@ -1,7 +1,3 @@
-"""FastAPI-приложение сервиса финансового прогнозирования.
-
-Запуск из корня репозитория: ``uvicorn api.main:app --reload --port 8000``; документация — http://localhost:8000/docs
-"""
 from __future__ import annotations
 
 import logging
@@ -57,23 +53,23 @@ def _validation_text(exc: RequestValidationError) -> str:
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):  # noqa: ANN201
+async def lifespan(app: FastAPI):
     setup_logging()
     init_db()
     with new_session() as s:
         ensure_users(s)
     core = get_core()
-    from .demo import personalize_users  # noqa: PLC0415
+    from .demo import personalize_users
 
     with new_session() as s:
-        personalize_users(s)            # общие компании только для чтения: у demo — своя копия S02
+        personalize_users(s)
     if get_settings().demo_warmup:
-        from .demo import prepare_template  # noqa: PLC0415
+        from .demo import prepare_template
 
         with new_session() as s:
             try:
                 prepare_template(s)
-            except Exception as exc:  # noqa: BLE001 — демо подготовится при первом входе
+            except Exception as exc:
                 log.warning("demo warmup failed: %s", type(exc).__name__)
     log.info("api started: core=%s", core.name)
     yield

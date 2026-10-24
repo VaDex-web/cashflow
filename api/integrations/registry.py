@@ -1,13 +1,3 @@
-"""Открытые реестры (мок): статус контрагента, банкротство, долги по налогам, арбитраж, ФССП; госконтракты.
-
-Реальные источники — ЕГРЮЛ/ЕГРИП, Федресурс (ЕФРСБ), сведения ФНС о задолженности, картотека
-арбитражных дел, банк данных исполнительных производств ФССП, ЕИС «Закупки». В прототипе:
-``registry.json`` (тестовые данные/загруженный файл) или детерминированный мок по ИНН.
-
-Признак «проблемный контрагент» (risk_level=high) повышает вероятность задержки его оплаты:
-событие-поступление от него передаётся в прогноз с консервативной датой (+``REGISTRY_DELAY_DAYS``),
-а причина видна пользователю в ``note`` события и в ``warnings`` прогноза.
-"""
 from __future__ import annotations
 
 import hashlib
@@ -25,14 +15,13 @@ from .base import CompanyContext, Integration, SourceEvent, as_date, counterpart
 class CounterpartyStatus:
     inn: str
     name: str
-    risk_level: str = "low"                       # low | medium | high
+    risk_level: str = "low"
     reasons: list[str] = field(default_factory=list)
     delay_days: int = 0
     details: dict[str, Any] = field(default_factory=dict)
 
 
 def assess(inn: str, name: str, info: dict[str, Any], delay_days: int) -> CounterpartyStatus:
-    """Правила риска по данным реестров."""
     status = str(pick(info, "Статус", "status", default="Действующее"))
     bankrupt = bool(pick(info, "Банкротство", "bankruptcy", default=False))
     debt = to_float(pick(info, "ЗадолженностьПоНалогам", "tax_debt"))
@@ -77,7 +66,6 @@ class Registry(Integration):
         return self._mock_checks(company)
 
     def _mock_checks(self, company: CompanyContext) -> list[CounterpartyStatus]:
-        """Без файла: детерминированный мок по ИНН (~6% клиентов с признаками риска)."""
         df, as_of = company.df, company.as_of
         if not len(df) or as_of is None:
             return []
@@ -98,7 +86,6 @@ class Registry(Integration):
         return out
 
     def fetch(self, company: CompanyContext) -> list[SourceEvent]:
-        """События — этапы оплаты по госконтрактам (ЕИС «Закупки»)."""
         data = company.document_json("registry") or {}
         out: list[SourceEvent] = []
         for gk in pick(data, "Госконтракты", "gov_contracts", default=[]) or []:

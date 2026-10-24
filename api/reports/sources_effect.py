@@ -1,22 +1,7 @@
-"""Отчёт «как источник улучшил прогноз» → api/reports/sources_effect.md (+ sources_effect.json).
-
-Часть А — синтетика с известным будущим (data/synthetic/future): тот же путь, что в API
-(синхронизация источника → прогноз), прогон «без источника» и «с источником», сравнение с фактом.
-Часть Б — бэктест на реальных выписках организаторов: прогноз строится на дату за 30 дней до конца
-выписки, факт — последние 30 дней. Честно считаются только источники, которые не знают будущего
-(налоговый календарь, банк по истории); «1С» на реальных данных — имитация (известна часть будущих
-поступлений по счетам с ошибкой даты ±3 раб. дня), помечена отдельно.
-
-Запуск из корня репозитория:
-    CORE_PATH=core python -m api.reports.sources_effect            # обе части (~10 мин на 4 ядрах)
-    python -m api.reports.sources_effect --part A                     # только синтетика
-    python -m api.reports.sources_effect --companies 40 --workers 4
-"""
 from __future__ import annotations
 
 import os
 
-# один поток BLAS/OpenMP на процесс: иначе воркеры душат друг друга
 for _v in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):
     os.environ.setdefault(_v, "1")
 
@@ -46,9 +31,7 @@ TITLES = {"base": "только выписка", "tax_calendar": "+ налого
           "all": "все источники", "tax+bank": "+ налоги + банк", "1c_sim": "+ 1С (имитация)", "all_sim": "все (с имитацией 1С)"}
 
 
-# --------------------------------------------------------------------------- метрики
 def truth_series(as_of: date, fut: pd.DataFrame, start_balance: float) -> pd.Series:
-    """Фактический остаток на конец каждого календарного дня горизонта."""
     days = [as_of + timedelta(days=k) for k in range(1, HORIZON + 1)]
     f = fut.copy()
     f["d"] = pd.to_datetime(f["date"]).dt.date
@@ -86,7 +69,6 @@ def metrics(res: dict[str, Any], truth: pd.Series) -> dict[str, Any]:
     }
 
 
-# --------------------------------------------------------------------------- часть А: синтетика через API
 def part_a() -> list[dict[str, Any]]:
     from fastapi.testclient import TestClient
 
@@ -117,7 +99,6 @@ def part_a() -> list[dict[str, Any]]:
                 t0 = time.time()
                 up = c.post("/api/companies", headers=h, files={"file": (f"{cid}.csv", raw, "text/csv")}).json()
                 comp = up["company_id"]
-                # разрыв для метрик — «денег меньше нуля», поэтому комфортный минимум владельца здесь 0
                 c.put(f"/api/companies/{comp}/settings", headers=h, json={"safety_cushion": 0})
                 for s in srcs:
                     c.post(f"/api/companies/{comp}/integrations/{s}/sync", headers=h)
@@ -136,9 +117,7 @@ def part_a() -> list[dict[str, Any]]:
     return results
 
 
-# --------------------------------------------------------------------------- часть Б: реальные выписки
 def _simulated_1c(fut: pd.DataFrame, seed: int) -> list[dict[str, Any]]:
-    """Имитация 1С: учёт знает ~80% будущих поступлений по счетам/договорам; дата оплаты — с ошибкой ±3 раб. дня."""
     from api.integrations.base import next_business_day
 
     rnd = random.Random(seed)
@@ -205,7 +184,7 @@ def part_b(n: int, workers: int, n_sims: int) -> list[dict[str, Any]]:
     from .split import split
 
     raw_dir = ROOT / "data" / "raw"
-    holdout = set(split()["holdout"])          # только отложенные компании: параметры подбирались на dev
+    holdout = set(split()["holdout"])
     rows = list(csv.DictReader((raw_dir / "companies.csv").open(encoding="utf-8-sig"), delimiter=";"))
     rows = [r for r in rows if r["company_id"] in holdout
             and (date.fromisoformat(r["last_operation_date"]) - date.fromisoformat(r["first_operation_date"])).days > 300]
@@ -222,7 +201,6 @@ def part_b(n: int, workers: int, n_sims: int) -> list[dict[str, Any]]:
     return out
 
 
-# --------------------------------------------------------------------------- отчёт
 def _agg(results: list[dict[str, Any]], configs: list[str]) -> list[dict[str, Any]]:
     df = pd.DataFrame(results)
     base = df[df["config"] == "base"].set_index("company")
@@ -255,7 +233,6 @@ def _agg(results: list[dict[str, Any]], configs: list[str]) -> list[dict[str, An
 
 
 def summary(data: dict[str, Any]) -> dict[str, Any]:
-    """Сводка для GET /api/metrics/sources (раздел «Как это работает»)."""
     a, b = data.get("part_a", []), data.get("part_b", [])
     return {
         "synthetic": _agg(a, ["base", "tax_calendar", "bank", "1c", "registry", "contracts", "1c+registry", "all"]) if a else [],

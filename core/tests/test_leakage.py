@@ -1,4 +1,3 @@
-"""Нет утечки из будущего: прогноз на дату отсечения не зависит от строк после неё."""
 import numpy as np
 import pandas as pd
 
@@ -12,9 +11,9 @@ def test_future_rows_do_not_change_forecast():
     origin = (full["date"].max() - pd.Timedelta(days=60)).date()
     spoiled = full.copy()
     fut = spoiled["date"].dt.date > origin
-    spoiled.loc[fut, "amount"] *= 10                      # будущие суммы
-    spoiled.loc[fut, "balance_eod"] = -1e12                # будущие остатки
-    spoiled.loc[fut, "purpose"] = "Перечисление заработной платы"  # будущие назначения
+    spoiled.loc[fut, "amount"] *= 10
+    spoiled.loc[fut, "balance_eod"] = -1e12
+    spoiled.loc[fut, "purpose"] = "Перечисление заработной платы"
     spoiled["signed_amount"] = np.where(spoiled["direction"] == "in", spoiled["amount"], -spoiled["amount"])
     a = forecast_from_state(build_state(full, [], 30, as_of=origin, model="auto", **FAST))
     b = forecast_from_state(build_state(spoiled, [], 30, as_of=origin, model="auto", **FAST))

@@ -1,4 +1,3 @@
-"""Эндпоинты по контракту на ядре-заглушке: аутентификация, загрузка, схемы ответов, ошибки на русском."""
 from __future__ import annotations
 
 from api.schemas import CategoriesResponse, Event, ForecastResult, PlanFactRow, Recurring, Risk, ScenarioResult
@@ -26,18 +25,18 @@ def test_login_and_errors(stub):
 def test_one_user_one_company_and_demo_mode(stub, auth):
     r = stub.get("/api/companies", headers=auth)
     mine = [c["company_id"] for c in r.json()]
-    assert len(mine) == 1 and mine[0].startswith("s02-")           # после входа — только своя компания (копия S02)
+    assert len(mine) == 1 and mine[0].startswith("s02-")
     s02 = r.json()[0]
     assert set(s02) == {"company_id", "company_name", "legal_form", "industry", "first_operation_date",
                         "last_operation_date", "operations_count"}
     assert stub.get("/api/me", headers=auth).json() == {"username": "demo", "company_id": mine[0],
                                                          "company_name": "ООО «Вектор Бизнес-Сервис»"}
     demo = [c["company_id"] for c in stub.get("/api/companies?demo=true", headers=auth).json()]
-    assert demo[0] == mine[0] and {"S01", "S02", "S05"} <= set(demo)  # скрытый демо-режим — весь список
+    assert demo[0] == mine[0] and {"S01", "S02", "S05"} <= set(demo)
     other = login(stub, "other")
     assert stub.get("/api/companies", headers=other).json() == []
     copy = stub.put("/api/me", headers=other, json={"company_id": "S05"}).json()["company_id"]
-    assert copy.startswith("s05-")                                   # общая S05 не меняется — у other своя копия
+    assert copy.startswith("s05-")
     assert [c["company_id"] for c in stub.get("/api/companies", headers=other).json()] == [copy]
     assert stub.put("/api/me", headers=other, json={"company_id": "S05"}).json()["company_id"] == copy
 
@@ -63,7 +62,7 @@ def test_upload_and_isolation(stub, auth):
     assert r.status_code == 200, r.text
     cid = r.json()["company_id"]
     assert cid.startswith("s02-") and r.json()["rows"] > 500
-    assert [c["company_id"] for c in stub.get("/api/companies", headers=auth).json()] == [cid]   # новая выписка — моя компания
+    assert [c["company_id"] for c in stub.get("/api/companies", headers=auth).json()] == [cid]
     assert stub.get(f"/api/companies/{cid}/forecast", headers=auth).status_code == 200
     other = login(stub, "other")
     r = stub.get(f"/api/companies/{cid}/forecast", headers=other)

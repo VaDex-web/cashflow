@@ -1,7 +1,3 @@
-// Заглушка API: читает docs/mock/*.json и повторяет поведение эндпоинтов из docs/contract.md.
-// Сценарии «что если» в мок-режиме пересчитываются приближённо прямо в браузере —
-// только чтобы демо работало без бэкенда. Настоящий расчёт делает core/.
-
 import type {
   CashEvent, CategoriesResponse, DailyPoint, ForecastResult, MetricsReport, NewCashEvent,
   PlanFact, Recurring, Risk, Scenario, ScenarioResult, SyncResponse, Transaction,
@@ -44,7 +40,6 @@ export const mockApi = {
     const text = await file.text()
     const lines = text.split(/\r?\n/).filter((l) => l.trim())
     if (lines.length < 2) throw new Error('В файле нет операций — проверьте, что это выписка в формате CSV')
-    // Грубая оценка периода, чтобы показать предупреждение «данных мало»
     const dates = text.match(/\d{4}-\d{2}-\d{2}/g) ?? []
     const uniq = [...new Set(dates)].sort()
     lowData = uniq.length > 0 && (parseDate(uniq.at(-1)!).getTime() - parseDate(uniq[0]).getTime()) / 864e5 < 60
@@ -112,7 +107,6 @@ export const mockApi = {
   },
 }
 
-/** Ручные события, добавленные в мок-сессии, сдвигают прогноз */
 function applyEvents(fc: ForecastResult): ForecastResult {
   const base = new Set(load<CashEvent[]>('events.json').map((e) => e.id))
   const added = getEvents().filter((e) => !base.has(e.id) && e.status === 'expected')
@@ -147,7 +141,6 @@ function simulate(base: ForecastResult, sc: Scenario, evs: CashEvent[]): Forecas
       break
     }
     case 'revenue_drop': {
-      // ~58 тыс ₽ выручки в будний день + крупные поступления от клиентов
       const inflows = evs.filter((e) => e.direction === 'in' && e.status === 'expected')
       let cum = 0
       daily = daily.map((d) => {
@@ -175,7 +168,6 @@ function simulate(base: ForecastResult, sc: Scenario, evs: CashEvent[]): Forecas
   return { ...base, daily, risks: recomputeRisks(daily, base.risks) }
 }
 
-/** Упрощённый пересчёт рисков: эпизоды, где нижняя граница уходит ниже нуля */
 function recomputeRisks(daily: DailyPoint[], original: Risk[]): Risk[] {
   const out: Risk[] = []
   let ep: DailyPoint[] = []
@@ -205,7 +197,6 @@ function recomputeRisks(daily: DailyPoint[], original: Risk[]): Risk[] {
 }
 
 function phi(x: number): number {
-  // аппроксимация функции нормального распределения
   const t = 1 / (1 + 0.2316419 * Math.abs(x))
   const y = 1 - 0.3989423 * Math.exp((-x * x) / 2) * t * (0.3193815 + t * (-0.3565638 + t * (1.781478 + t * (-1.821256 + t * 1.330274))))
   return x >= 0 ? y : 1 - y

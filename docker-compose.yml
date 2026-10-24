@@ -1,4 +1,3 @@
-# Развёртывание: см. docs/deploy.md. Секреты и домен — только в .env (шаблон — .env.example).
 services:
   api:
     build:

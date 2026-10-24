@@ -1,8 +1,3 @@
-"""Подбор единственного параметра налогового календаря — доли «НДФЛ + взносы» от зарплаты
-(используется, только когда в истории нет налоговых платежей). Считается **только по dev-компаниям**.
-
-    python -m api.reports.calibrate_tax
-"""
 from __future__ import annotations
 
 import pandas as pd
@@ -20,9 +15,9 @@ def main() -> None:
     tax = out[text.str.contains(r"енп|единый налог|енс")]
     pay = out[text.str.contains(r"заработн")]
     t = tax.groupby(["company_id", "ym"])["amount"].sum()
-    p = pay.groupby(["company_id", "ym"])["amount"].sum().groupby(level=0).shift(1)      # зарплата прошлого месяца
+    p = pay.groupby(["company_id", "ym"])["amount"].sum().groupby(level=0).shift(1)
     j = pd.concat([t.rename("tax"), p.rename("pay")], axis=1).dropna().reset_index()
-    j = j[j["ym"].dt.month.isin([2, 5, 8, 11])]                                      # месяцы без квартальных платежей
+    j = j[j["ym"].dt.month.isin([2, 5, 8, 11])]
     r = j["tax"] / j["pay"]
     print(f"dev-компаний: {j['company_id'].nunique()}, месяцев: {len(j)}; доля ЕНП от зарплаты: медиана {r.median():.3f} "
           f"(25% — {r.quantile(.25):.3f}, 75% — {r.quantile(.75):.3f})")

@@ -1,16 +1,3 @@
-"""Сценарии «что если» (п.7 задания).
-
-Сценарий меняет план (расписание платежей и множители остаточных потоков),
-а симуляция идёт с теми же случайными числами, что и база, поэтому разница
-между base и scenario вызвана только сценарием.
-
-* ``client_delay`` {counterparty_or_event_id, weeks: 2..4} — входящие платежи
-  клиента (событие по id, регулярный паттерн или доля клиента в остаточной
-  выручке) сдвигаются на N недель;
-* ``revenue_drop`` {percent: 10..30} — вся выручка × (1 − p);
-* ``unplanned_expense`` {amount, date} — разовый расход;
-* ``fixed_cost_growth`` {percent} — зарплата, аренда, коммунальные, комиссии × (1 + p).
-"""
 from __future__ import annotations
 
 from datetime import date, timedelta
@@ -35,7 +22,6 @@ def _num(x: Any, default: float) -> float:
 
 
 def apply_scenario(state: "ForecastState", plan: "Plan", scenario: dict[str, Any]) -> "Plan":
-    """Вернуть копию плана с применённым сценарием (исходный план не меняется)."""
     from .engine import PlannedItem
 
     pl = plan.copy()
@@ -61,7 +47,6 @@ def apply_scenario(state: "ForecastState", plan: "Plan", scenario: dict[str, Any
                                                                                     or it.counterparty.lower() in target)):
                 it.day_shift += shift
                 hits += 1
-        # клиент без регулярного паттерна: сдвигаем его долю в остаточной выручке
         tx = state.df
         if target and len(tx):
             m = (tx["direction"] == "in") & (tx["counterparty_name"].str.lower().str.contains(target, regex=False)
@@ -109,19 +94,6 @@ def apply_scenario(state: "ForecastState", plan: "Plan", scenario: dict[str, Any
 
 def run_scenarios(df: Any, events: list[dict[str, Any]] | None = None, scenario: dict[str, Any] | None = None,
                   **kwargs: Any) -> dict[str, Any]:
-    """Базовый прогноз и прогноз по сценарию на одной оси + delta.
-
-    Args:
-        df: выписка или готовое :class:`engine.ForecastState`.
-        events: события (игнорируются, если передано состояние).
-        scenario: ``{type, params}`` по контракту.
-
-    Returns:
-        ``{base, scenario, delta}``. ``delta.first_gap_date`` и ``delta.max_shortfall`` —
-        значения для сценария; дополнительно ``first_gap_date_base``,
-        ``max_shortfall_base``, ``days_earlier`` (на сколько дней раньше наступает разрыв)
-        и ``max_shortfall_change``.
-    """
     from .engine import ForecastState, build_plan, build_state, ensure_error_horizon, make_result, simulate
     from .risk import gap_summary
 

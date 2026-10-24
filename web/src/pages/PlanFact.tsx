@@ -8,7 +8,7 @@ import { useSession } from '../lib/session'
 import { useAsync } from '../lib/useAsync'
 import { NoCompany } from './Dashboard'
 
-const DEV_THRESHOLD = 0.07 // отклонение больше 7% подсвечиваем
+const DEV_THRESHOLD = 0.07
 
 function weekLabel(p: string) {
   const a = parseDate(p)
@@ -39,7 +39,6 @@ export function PlanFact() {
     const fact = kind === 'in' ? r.actual_in : r.actual_out
     return { label: weekLabel(r.period), plan, fact, dev: plan ? (fact - plan) / plan : 0, row: r }
   })
-  // Неделя с почти нулевым планом даёт бессмысленные проценты — там сравниваем только рубли
   const avgPlan = data.reduce((s, d) => s + d.plan, 0) / data.length
   const tinyPlan = (d: { plan: number }) => d.plan < avgPlan * 0.25
   const isBad = (d: { plan: number; fact: number; dev: number }) => {

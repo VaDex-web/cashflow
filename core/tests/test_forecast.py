@@ -1,4 +1,3 @@
-"""Прогноз и риски: схема, тождество остатка, вероятности, воспроизводимость."""
 from datetime import timedelta
 
 import numpy as np

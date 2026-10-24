@@ -1,4 +1,3 @@
-"""Демо-вход в один клик, изоляция гостей, лимит запросов и логи без чувствительных данных."""
 from __future__ import annotations
 
 import logging
@@ -18,21 +17,18 @@ def test_demo_guests_get_own_copies(stub):
     cb = stub.get("/api/me", headers=b).json()["company_id"]
     assert ca and cb and ca != cb and ca.startswith("s02-")
     assert stub.get(f"/api/companies/{ca}/forecast", headers=a).status_code == 200
-    # событие гостя A не видно гостю B, а чужая копия закрыта
     ev = {"type": "manual", "direction": "out", "amount": 1000, "date": "2026-11-01"}
     assert stub.post(f"/api/companies/{ca}/events", headers=a, json=ev).status_code == 200
     assert all(e["amount"] != 1000 for e in stub.get(f"/api/companies/{cb}/events", headers=b).json())
     assert stub.get(f"/api/companies/{ca}/events", headers=b).status_code == 403
-    # шаблон демо снаружи недоступен
     assert stub.get("/api/companies/demo-template/forecast", headers=a).status_code == 403
 
 
 def test_shared_companies_are_read_only(stub):
-    """Общие компании (датасет, демо) можно смотреть, но нельзя менять — ни гостю, ни пользователю demo."""
     g, d = _demo(stub), login(stub)
     ev = {"type": "manual", "direction": "out", "amount": 9_000_000, "date": "2026-11-01"}
     for h in (g, d):
-        assert stub.get("/api/companies/S01/forecast", headers=h).status_code == 200      # читать можно
+        assert stub.get("/api/companies/S01/forecast", headers=h).status_code == 200
         assert stub.post("/api/companies/S01/events/parse", headers=h, json={"text": "клиент обещал 300 000 ₽ 20-го"}).status_code == 200
         r = stub.post("/api/companies/S01/events", headers=h, json=ev)
         assert r.status_code == 403 and "только в вашей копии" in r.json()["detail"]
@@ -51,7 +47,6 @@ def test_shared_companies_are_read_only(stub):
 
 
 def test_choosing_shared_company_gives_private_copy(stub):
-    """PUT /me на общую компанию — личная копия: события одного гостя не видят другой гость и demo."""
     a, b, d = _demo(stub), _demo(stub), login(stub)
     ca = stub.put("/api/me", headers=a, json={"company_id": "S01"}).json()["company_id"]
     cb = stub.put("/api/me", headers=b, json={"company_id": "S01"}).json()["company_id"]
@@ -59,12 +54,11 @@ def test_choosing_shared_company_gives_private_copy(stub):
     ev = {"type": "manual", "direction": "out", "amount": 9_000_000, "date": "2026-11-01", "note": "мусор гостя"}
     r = stub.post(f"/api/companies/{ca}/events", headers=a, json=ev)
     assert r.status_code == 200
-    assert stub.delete(f"/api/companies/{ca}/events/{r.json()['id']}", headers=b).status_code == 403   # чужая копия
+    assert stub.delete(f"/api/companies/{ca}/events/{r.json()['id']}", headers=b).status_code == 403
     seen = [stub.get(f"/api/companies/{cid}/events", headers=h).json() for cid, h in
             ((cb, b), ("S01", d), (my_company(stub, d), d))]
     assert all(e["amount"] != 9_000_000 for evs in seen for e in evs)
     assert stub.get(f"/api/companies/{ca}/events", headers=d).status_code == 403
-    # у demo своя копия S02, а не общая S02
     assert my_company(stub, d).startswith("s02-")
 
 
@@ -83,12 +77,10 @@ def test_rate_limit(tmp_path):
         codes = [c.post("/api/auth/login", json={"username": "demo", "password": "x"}).status_code for _ in range(3)]
         assert codes[:2] == [401, 401] and codes[2] == 429
         assert "Слишком много запросов" in c.post("/api/auth/login", json={"username": "demo", "password": "x"}).json()["detail"]
-        assert c.get("/api/health").status_code == 200          # health не ограничен
+        assert c.get("/api/health").status_code == 200
 
 
 def test_logs_have_no_sensitive_data(tmp_path, caplog):
-    """Полный сценарий (вход, загрузка выписки, прогноз, события, источники) — в логах нет ИНН, названий,
-    назначений, сумм и токенов."""
     raw = (ROOT / "data" / "synthetic" / "statements" / "S05.csv").read_bytes()
     text = raw.decode("utf-8-sig")
     lines = [ln.split(";") for ln in text.splitlines()[1:40]]
@@ -109,7 +101,7 @@ def test_logs_have_no_sensitive_data(tmp_path, caplog):
         c.get(f"/api/companies/{cid}/events?token={tok}", headers=h)
         logging.getLogger("api.test").info("debug %s %s", tok, "Bearer " + tok)
     logged = caplog.text
-    assert "GET /api/companies/" in logged                       # access-лог есть
+    assert "GET /api/companies/" in logged
     assert tok not in logged and tok[:20] not in logged
     for secret in [*inns, *names, *purposes, *amounts, "777777", "Тайна"]:
         assert secret not in logged, secret

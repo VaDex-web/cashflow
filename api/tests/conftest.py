@@ -1,4 +1,3 @@
-"""Общие фикстуры: отдельная временная база на тест, ядро-заглушка или настоящее cashflow_core."""
 from __future__ import annotations
 
 import os
@@ -23,7 +22,7 @@ def core_available() -> bool:
     if p.exists() and str(p) not in sys.path:
         sys.path.insert(0, str(p))
     try:
-        import cashflow_core  # noqa: F401, PLC0415
+        import cashflow_core
         return True
     except ImportError:
         return False
@@ -43,7 +42,6 @@ def make_client(tmp_path: Path, stub: bool, **overrides) -> TestClient:
 
 
 def my_company(client: TestClient, headers: dict[str, str]) -> str:
-    """Компания пользователя: у demo это его личная копия S02 (общие компании только для чтения)."""
     return client.get("/api/me", headers=headers).json()["company_id"]
 
 

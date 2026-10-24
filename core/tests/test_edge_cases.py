@@ -1,4 +1,3 @@
-"""Граничные случаи: ничего не падает, есть понятные warnings."""
 import logging
 from datetime import timedelta
 
@@ -57,12 +56,12 @@ def test_bad_events_and_new_counterparty():
 
 
 def test_outliers_and_holidays_horizon():
-    df = generate_statement(days=380, start="2024-12-20")  # горизонт попадает на январские каникулы
+    df = generate_statement(days=380, start="2024-12-20")
     big = df.iloc[[40]].copy()
     big["amount"] = 5e7
     big["direction"] = "in"
     df = pd.concat([df, big]).sort_values("date").reset_index(drop=True)
-    df["balance_eod"] = df["balance_eod"]  # остаток не сходится в один день — это тоже граничный случай
+    df["balance_eod"] = df["balance_eod"]
     _ok(forecast(df, [], 30, **FAST, model="ets"))
 
 
@@ -94,7 +93,6 @@ def test_logs_have_no_inn_names_or_amounts():
 
 
 def _closed(df: pd.DataFrame) -> pd.DataFrame:
-    """Последней операцией весь остаток переведён на другой счёт в связи с закрытием."""
     d = df.copy()
     last = pd.to_datetime(d["date"]).max() + pd.Timedelta(days=1)
     bal = float(d["balance_eod"].iloc[-1])
@@ -126,8 +124,8 @@ def test_risk_text_matches_badge_and_short_history_is_cautious():
     ev = [{"id": "big", "type": "manual", "direction": "out", "amount": 2.5e7, "date": d, "note": "оборудование"}]
     r = forecast(df, ev, 30, **FAST)
     gap = [k for k in r["risks"] if k["date"] == d][0]
-    assert f"Вероятность — {int(gap['probability'] * 100 + 0.5)}%." in gap["reason"]     # как на бейдже
+    assert f"Вероятность — {int(gap['probability'] * 100 + 0.5)}%." in gap["reason"]
     assert "уверенность низкая" in gap["reason"]
-    assert not any("кредит примерно на" in x for x in gap["recommendations"])          # без суммы кредита
+    assert not any("кредит примерно на" in x for x in gap["recommendations"])
     assert any("точную сумму назвать нельзя" in x for x in gap["recommendations"])
     assert "В ближайшие 1 день" not in " ".join(k["reason"] for k in r["risks"])

@@ -1,17 +1,3 @@
-"""Инкрементальное обновление прогноза (п.8 задания).
-
-При поступлении новых операций полный пересчёт не делается:
-
-1. новые строки чистятся тем же парсером и размечаются **уже обученным** категоризатором;
-2. дубли уже известных операций отбрасываются;
-3. остаток сдвигается (по ``balance_eod`` новых строк или «старый остаток + потоки»);
-4. операции сопоставляются с ожидаемыми регулярными платежами (расписание сдвигается)
-   и с событиями (статус → ``paid``); неоплаченные в срок события → ``overdue``;
-5. остаточные ряды продлеваются; модели потоков **не переобучаются** — они берут
-   продлённую историю как контекст, поэтому пересчитывается только хвост прогноза;
-6. полная перестройка состояния — только если с последнего обучения прошло
-   больше ``REFIT_DAYS`` дней.
-"""
 from __future__ import annotations
 
 import time
@@ -40,14 +26,14 @@ def _to_frame(new_rows: Any) -> pd.DataFrame:
         return pd.DataFrame([new_rows])
     if isinstance(new_rows, (list, tuple)):
         return pd.DataFrame(list(new_rows))
-    return load_statement(new_rows)  # путь к файлу
+    return load_statement(new_rows)
 
 
 def _match_event(e: dict[str, Any], row: pd.Series) -> bool:
     if row["direction"] != e["direction"]:
         return False
     cp = (e.get("counterparty") or "").lower()
-    tol = 0.1 if cp else 0.01  # без контрагента — только почти точное совпадение суммы
+    tol = 0.1 if cp else 0.01
     if not (1 - tol <= row["amount"] / max(e["amount"], 1.0) <= 1 + tol):
         return False
     d = row["date"].date() if hasattr(row["date"], "date") else row["date"]
@@ -58,16 +44,6 @@ def _match_event(e: dict[str, Any], row: pd.Series) -> bool:
 
 
 def update_forecast(state: ForecastState, new_rows: Any) -> tuple[ForecastState, dict[str, Any]]:
-    """Добавить новые операции и пересчитать прогноз без полного переобучения.
-
-    Args:
-        state: состояние из :func:`engine.build_state` (изменяется на месте и возвращается).
-        new_rows: список dict / DataFrame / путь к CSV с новыми операциями (формат выписки).
-
-    Returns:
-        (state, ForecastResult). В ``state.last_update`` — что изменилось
-        (сколько строк принято, какие события оплачены/просрочены, был ли полный пересчёт).
-    """
     t0 = time.time()
     notes: list[str] = []
     raw = _to_frame(new_rows)
@@ -98,7 +74,6 @@ def update_forecast(state: ForecastState, new_rows: Any) -> tuple[ForecastState,
     new["tx_id"] = [f"u{abs(hash((t, i, time.time()))) % 10**12:012d}" for i, t in enumerate(new["tx_id"])]
     info["rows_accepted"] = int(len(new))
 
-    # --- остаток и дневной ряд
     new_dates = pd.to_datetime(new["date"])
     new_end = max(new_dates.max().date(), state.as_of)
     net_new = float(new["signed_amount"].sum())
@@ -109,7 +84,6 @@ def update_forecast(state: ForecastState, new_rows: Any) -> tuple[ForecastState,
         state.start_balance = float(state.start_balance + net_new)
     state.df = pd.concat([old, new], ignore_index=True)
 
-    # --- регулярные платежи
     matched_ids: set[str] = set()
     new["cp"] = [_cp_key(i, n) for i, n in zip(new["counterparty_inn"], new["counterparty_name"])]
     for p in state.patterns:
@@ -134,7 +108,6 @@ def update_forecast(state: ForecastState, new_rows: Any) -> tuple[ForecastState,
             notes.append(f"Регулярное поступление «{p.name}» ожидалось {day_month(exp)}, но не пришло — "
                          f"в прогнозе оно сдвинуто и риск пересчитан.")
 
-    # --- события
     for e in state.events:
         if e["status"] == "paid":
             continue
@@ -150,7 +123,6 @@ def update_forecast(state: ForecastState, new_rows: Any) -> tuple[ForecastState,
             notes.append(f"Ожидаемое {what} {rub(e['amount'])} ({e.get('counterparty') or e['type']}) на "
                          f"{day_month(date.fromisoformat(e['date']))} не прошло — помечено как просроченное.")
 
-    # --- полный пересчёт, если накопилось много новых дней
     if state.fitted_as_of and (new_end - state.fitted_as_of).days >= REFIT_DAYS:
         settings = state.settings
         fresh = build_state(state.df, state.events, settings["horizon"], company_id=state.company_id,
@@ -163,7 +135,6 @@ def update_forecast(state: ForecastState, new_rows: Any) -> tuple[ForecastState,
         log.info("incremental update with refit: rows=%d", info["rows_accepted"])
         return fresh, _result(fresh, notes)
 
-    # --- продлеваем дневной ряд и остаточные ряды (без переобучения моделей)
     idx = pd.date_range(state.daily.index[0], pd.Timestamp(new_end), freq="D", name="date")
     add = new[~new["tx_id"].isin(matched_ids)]
     add = add[~((add["direction"] == "in") & add["category"].isin(RESCUE_INFLOW_CATEGORIES))]

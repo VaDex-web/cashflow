@@ -1,4 +1,3 @@
-"""Сценарии двигают разрыв в правильную сторону."""
 from datetime import timedelta
 
 from cashflow_core import run_scenarios
@@ -10,7 +9,7 @@ from helpers import FAST, base_df, last_date
 def _state_with_tight_balance():
     df = base_df()
     d = (last_date(df) + timedelta(days=20)).date()
-    big = load_statement(df).iloc[-1]["balance_eod"]  # почти весь остаток уйдёт 20-го числа
+    big = load_statement(df).iloc[-1]["balance_eod"]
     ev = [{"id": "pay", "type": "invoice", "direction": "out", "amount": float(big) * 1.3, "date": d.isoformat()},
           {"id": "client", "type": "invoice", "direction": "in", "amount": float(big) * 0.3,
            "date": (d - timedelta(days=3)).isoformat(), "counterparty": "ООО «Клиент-01»"}]

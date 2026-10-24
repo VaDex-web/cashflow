@@ -1,11 +1,3 @@
-"""Безопасное логирование: только агрегаты и идентификаторы.
-
-В логи нельзя писать ИНН, названия контрагентов, назначения платежей и суммы
-отдельных операций. Все модули пишут через :func:`get_logger`, а сообщения
-формируют только из счётчиков, долей, длительностей и id. Дополнительно
-фильтр :class:`RedactFilter` вырезает похожие на ИНН и суммы числа, если
-кто-то случайно их передаст.
-"""
 from __future__ import annotations
 
 import logging
@@ -16,9 +8,7 @@ _MONEY_RE = re.compile(r"(?<![\d\-:])\d[\d  ]{3,}(?:[.,]\d{1,2})?(?![\d\-:])\s*
 
 
 class RedactFilter(logging.Filter):
-    """Маскирует ИНН и денежные суммы в тексте сообщения лога."""
-
-    def filter(self, record: logging.LogRecord) -> bool:  # noqa: D401
+    def filter(self, record: logging.LogRecord) -> bool:
         msg = record.getMessage()
         msg = _INN_RE.sub("<inn>", msg)
         msg = _MONEY_RE.sub("<num>", msg)
@@ -27,7 +17,6 @@ class RedactFilter(logging.Filter):
 
 
 def get_logger(name: str = "cashflow_core") -> logging.Logger:
-    """Логгер пакета с фильтром маскировки."""
     logger = logging.getLogger(name)
     if not any(isinstance(f, RedactFilter) for f in logger.filters):
         logger.addFilter(RedactFilter())

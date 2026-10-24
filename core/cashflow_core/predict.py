@@ -1,22 +1,3 @@
-"""Машинно-читаемый прогноз для контрольного датасета.
-
-    python -m cashflow_core.predict <CSV | папка> --horizon 30 --out predictions.csv
-
-Для каждой компании берётся последняя дата в её выписке (данных «из будущего» нет:
-модель видит только строки выписки), строится прогноз остатка по дням на
-``horizon`` дней вперёд и риски разрывов. Пишутся два файла:
-
-* ``<out>.csv`` — ``company_id;date;balance_forecast;balance_low;balance_high`` (разделитель «;», как во входном датасете)
-  (медиана и границы P10/P90 по Monte Carlo), ровно ``horizon`` строк на компанию;
-* ``<out>.json`` — по компаниям: дата последней операции, текущий остаток, подушка
-  безопасности, риски (``date, shortfall_amount, probability, severity, kind, reason``),
-  предупреждения и статус.
-
-Детерминированно: фиксированный seed, порядок по ``company_id``, без временных меток —
-одинаковый вход даёт побайтно одинаковый выход при любом числе процессов. Компания,
-для которой прогноз построить не удалось, всё равно попадает в файл (остаток не меняется,
-``status: "fallback"`` и причина в ``warnings``).
-"""
 from __future__ import annotations
 
 import argparse
@@ -37,7 +18,6 @@ CSV_COLUMNS = ["company_id", "date", "balance_forecast", "balance_low", "balance
 
 
 def predict_company(cid: str, src: Any, horizon: int = 30, seed: int = 42, n_sims: int = 2000) -> dict[str, Any]:
-    """Прогноз одной компании в виде {company_id, rows, risks, ...}. Никогда не бросает исключение."""
     from .engine import build_plan, build_state, ensure_error_horizon, simulate
     from .io import load_statement
     from .risk import find_risks
@@ -60,15 +40,14 @@ def predict_company(cid: str, src: Any, horizon: int = 30, seed: int = 42, n_sim
         if not len(st.df):
             out["status"] = "fallback"
         return out
-    except Exception as exc:  # noqa: BLE001 — одна плохая выписка не должна ломать весь файл
+    except Exception as exc:
         out["status"] = "fallback"
         out["warnings"] = [f"Прогноз не построен ({type(exc).__name__}): остаток показан без изменений."]
-    # запасной вариант: последний известный остаток без изменений
     try:
         tx = load_statement(src, company_id=cid if not isinstance(src, (str, Path)) else None)
         bal = float(tx["balance_eod"].dropna().iloc[-1]) if tx["balance_eod"].notna().any() else 0.0
         last = pd.to_datetime(tx["date"]).max().date() if len(tx) else date.today()
-    except Exception:  # noqa: BLE001
+    except Exception:
         bal, last = 0.0, date.today()
     out.update(as_of=last.isoformat(), current_balance=round(bal, 2), comfort_balance=0.0)
     out["rows"] = [[cid, (last + timedelta(days=k + 1)).isoformat(), round(bal, 2), round(bal, 2), round(bal, 2)]
@@ -88,7 +67,6 @@ def _paths(out: str | Path) -> tuple[Path, Path]:
 
 def predict(path: str | Path, out: str | Path, horizon: int = 30, seed: int = 42, n_sims: int = 2000,
             workers: int = 1) -> tuple[Path, Path, list[dict[str, Any]]]:
-    """Построить прогноз для всех компаний из ``path`` и записать CSV + JSON."""
     comps = discover(path)
     jobs = [(cid, src, int(horizon), int(seed), int(n_sims)) for cid, src in comps]
     if workers > 1 and len(jobs) > 1:

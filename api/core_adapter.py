@@ -1,8 +1,3 @@
-"""Подключение ядра: заглушка (ответы из docs/mock) или настоящий ``cashflow_core``.
-
-Переключатель — ``USE_STUB_CORE=true/false``. Сигнатуры и JSON одинаковые (docs/contract.md, п. 3),
-поэтому остальной код API не знает, какое ядро работает.
-"""
 from __future__ import annotations
 
 import copy
@@ -22,8 +17,6 @@ log = logging.getLogger("api.core")
 
 
 class StubCore:
-    """Заглушка ядра: та же сигнатура, ответы — примеры из docs/mock/*.json."""
-
     name = "stub"
     version = "mock"
 
@@ -81,8 +74,6 @@ class StubCore:
 
 
 class RealCore:
-    """Настоящее ядро ``cashflow_core`` (core/). Вызывает только функции из контракта и README ядра."""
-
     name = "cashflow_core"
 
     def __init__(self, module: Any):
@@ -95,7 +86,6 @@ class RealCore:
 
     def build(self, df: pd.DataFrame, events: list[dict[str, Any]], horizon: int, company_id: str,
               base_state: Any = None, comfort_balance: float | None = None) -> Any:
-        """Порог разрыва — 0 ₽; ``comfort_balance`` — комфортный минимум владельца (второй вид риска, контракт)."""
         s = get_settings()
         if not self.has_state:
             return {"df": df, "events": events, "horizon": horizon, "company_id": company_id}
@@ -104,20 +94,14 @@ class RealCore:
             kw["comfort_balance"] = float(comfort_balance)
         src = df
         if base_state is not None and getattr(base_state, "categorizer", None) is not None:
-            # события поменялись, операции те же: переиспользуем обученный категоризатор (в 2 раза быстрее)
             kw["categorizer"] = base_state.categorizer
             src = base_state.df
         return self.m.build_state(src, events, max(horizon, 30), **kw)
 
     def _run(self, state: Any, horizon: int, scenarios: list[dict[str, Any]]) -> tuple[dict[str, Any], Any, Any]:
-        """Прогноз по состоянию с цепочкой сценариев и полем ``risks[].kind`` (контракт).
-
-        Те же шаги, что ``forecast_from_state`` ядра, но сценариев может быть несколько (поправка по реестрам +
-        сценарий пользователя), а риски берутся с видом: ``gap`` (ниже 0 ₽) или ``below_comfort``.
-        """
-        from cashflow_core.engine import build_plan, ensure_error_horizon, make_result, simulate  # noqa: PLC0415
-        from cashflow_core.risk import find_risks  # noqa: PLC0415
-        from cashflow_core.scenarios import apply_scenario  # noqa: PLC0415
+        from cashflow_core.engine import build_plan, ensure_error_horizon, make_result, simulate
+        from cashflow_core.risk import find_risks
+        from cashflow_core.scenarios import apply_scenario
 
         ensure_error_horizon(state, horizon)
         plan = build_plan(state, horizon)
@@ -135,12 +119,10 @@ class RealCore:
 
     def scenario(self, state: Any, scenario: dict[str, Any], horizon: int,
                  base_adjustment: dict[str, Any] | None = None) -> dict[str, Any]:
-        """``base_adjustment`` — поправка основного прогноза (задержка проблемного контрагента по реестрам):
-        входит и в базу, и в сценарий, чтобы база совпадала с ``GET /forecast``."""
         if isinstance(state, dict):
             return self.m.run_scenarios(state["df"], state["events"], scenario, company_id=state["company_id"],
                                         horizon=horizon)
-        from cashflow_core.risk import gap_summary  # noqa: PLC0415
+        from cashflow_core.risk import gap_summary
 
         base_chain = [base_adjustment] if base_adjustment else []
         scn_chain = [a for a in base_chain if not _same_delay(a, scenario)] + [scenario]
@@ -164,7 +146,7 @@ class RealCore:
     def tax_regime(self, df: pd.DataFrame) -> dict[str, Any]:
         try:
             return self.m.estimate_tax_regime(self.m.categorize(df))
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             log.warning("tax regime estimation failed: %s", type(exc).__name__)
             return {"regime": "unknown", "label": "не удалось определить", "confidence": 0.0, "evidence": []}
 
@@ -175,7 +157,6 @@ class RealCore:
 
 
 def _same_delay(a: dict[str, Any], b: dict[str, Any]) -> bool:
-    """Пользователь сам задаёт задержку того же клиента — поправку по реестрам не складываем с ней."""
     if a.get("type") != "client_delay" or b.get("type") != "client_delay":
         return False
     ta = str(a["params"].get("counterparty_or_event_id", "")).strip().lower()
@@ -187,8 +168,6 @@ _backend: StubCore | RealCore | None = None
 
 
 def get_core() -> StubCore | RealCore:
-    """Ядро по настройке USE_STUB_CORE. Без неё нужно настоящее ``cashflow_core``: если оно не импортируется —
-    ошибка запуска, а не тихая подмена прогноза заглушкой."""
     global _backend
     if _backend is not None:
         return _backend
@@ -199,7 +178,7 @@ def get_core() -> StubCore | RealCore:
     if s.core_path.exists() and str(s.core_path) not in sys.path:
         sys.path.insert(0, str(s.core_path))
     try:
-        import cashflow_core  # noqa: PLC0415
+        import cashflow_core
 
         _backend = RealCore(cashflow_core)
     except ImportError as exc:
@@ -217,10 +196,7 @@ def _now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
 
-# --------------------------------------------------------------------------- события для ядра
 def events_for_core(events: list[dict[str, Any]], checks: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
-    """События по контракту для ядра. У поступлений от проблемных контрагентов (открытые реестры)
-    добавлены поля ``risk`` и ``delay_probability`` — ядро может учитывать их напрямую."""
     out = []
     for e in events:
         ce = {k: e.get(k) for k in ("id", "type", "direction", "amount", "date", "source", "status", "counterparty", "note")}
@@ -235,12 +211,6 @@ def events_for_core(events: list[dict[str, Any]], checks: dict[str, dict[str, An
 
 def registry_delay(events: list[dict[str, Any]], checks: dict[str, dict[str, Any]], df: Any, as_of: date | None,
                    delay_days: int) -> tuple[dict[str, Any] | None, list[str]]:
-    """Поправка прогноза на проблемного контрагента: сценарий ``client_delay`` (контракт, п. 2).
-
-    Ядро сдвигает все ожидаемые поступления контрагента — и регулярные, и события — на ``delay_days``
-    (округление до недель), поэтому двойного учёта нет. Если таких контрагентов несколько — берётся тот,
-    от кого ждём больше денег (по событиям и выручке за 90 дней).
-    """
     from .textfmt import rub
 
     risky = [c for c in checks.values() if c.get("risk_level") == "high"]

@@ -1,12 +1,3 @@
-"""Отчёт о качестве для слайда: ``python -m cashflow_core.report``.
-
-Запускает rolling-origin бэктест по стратифицированной (по отраслям) выборке
-компаний из ``data/raw``, оценивает категоризацию и сохраняет:
-
-* ``core/reports/metrics.json`` — все метрики и настройки;
-* ``core/reports/metrics.md`` — таблица для слайда + методика и оговорки;
-* ``core/reports/errors.png`` — ошибка остатка по дням горизонта для каждой модели.
-"""
 from __future__ import annotations
 
 import argparse
@@ -34,12 +25,11 @@ def _one(args: tuple[str, str, dict[str, Any]]) -> dict[str, Any]:
         r = backtest(path, company_id=cid, **kw)
         r.pop("metrics", None)
         return r
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return {"company_id": cid, "error": type(exc).__name__, "records": {}, "recurring": {}}
 
 
 def pick_companies(companies_csv: Path, n: int, seed: int = 42, min_days: int = 240) -> list[str]:
-    """Стратифицированная по отраслям выборка компаний с историей ≥ min_days."""
     co = pd.read_csv(companies_csv, sep=";", dtype=str, encoding="utf-8-sig")
     co["days"] = (pd.to_datetime(co["last_operation_date"]) - pd.to_datetime(co["first_operation_date"])).dt.days
     co = co[co["days"] >= min_days]
@@ -103,7 +93,6 @@ def plot_errors(met: dict[str, Any], path: Path) -> None:
         x = np.arange(1, len(y) + 1)
         ax.plot(x, y, color=_COLORS[m], lw=2, label=_LABELS[m], solid_capstyle="round")
         ends.append([y[-1], x[-1], f"{y[-1]:.0f}%"])
-    # разводим подписи на конце линий, чтобы не налезали друг на друга
     ends.sort()
     gap = 1.4
     for i in range(1, len(ends)):
@@ -207,7 +196,6 @@ _CONTRACT_NAMES = {"flat": "Остаток не изменится (бейзла
 
 
 def demo_series(path: Path, company_id: str, horizon: int = 30, n_sims: int = 1000, seed: int = 42) -> list[dict[str, Any]]:
-    """Ряд «факт vs прогноз» с последней отсечки бэктеста одной компании — для графика на слайде."""
     from .backtest import _actual, _hybrid
     from .categorize import categorize
     from .io import load_statement, to_daily
@@ -226,11 +214,6 @@ def demo_series(path: Path, company_id: str, horizon: int = 30, n_sims: int = 10
 
 
 def contract_metrics(met: dict[str, Any], meta: dict[str, Any], series: list[dict[str, Any]]) -> dict[str, Any]:
-    """metrics.json строго по разделу 5 контракта.
-
-    ``mape`` здесь — медианная ошибка остатка в долях месячного оборота (MAPE самого остатка
-    неустойчив около нуля); пояснение — в metrics.md.
-    """
     models = []
     for m in ("naive", "ets", "hybrid"):
         if m not in met:
@@ -247,7 +230,6 @@ def contract_metrics(met: dict[str, Any], meta: dict[str, Any], series: list[dic
 
 
 def write_all(detail: dict[str, Any], out: Path, data: Path | None = None) -> None:
-    """Записать metrics_detail.json, metrics.json (контракт), metrics.md и errors.png."""
     met, meta, cat = detail["models"], detail["meta"], detail["categorization"]
     series = detail.get("demo_series") or []
     if not series and data is not None:
@@ -263,10 +245,6 @@ def write_all(detail: dict[str, Any], out: Path, data: Path | None = None) -> No
 
 
 def make_split(companies_csv: Path, seed: int = 42) -> dict[str, Any]:
-    """Разделить компании на dev (подбор параметров) и holdout (финальные метрики) 50/50 внутри каждой отрасли.
-
-    Порядок внутри отрасли задаётся хэшем (seed + company_id) — воспроизводимо и без выбора «удобных» компаний.
-    """
     import hashlib
 
     co = pd.read_csv(companies_csv, sep=";", dtype=str, encoding="utf-8-sig")
@@ -290,13 +268,6 @@ def _load_split(out: Path, data: Path, seed: int) -> dict[str, Any]:
 
 
 def publish(out: Path, data: Path, name: str = "raw", demo: str = "C001") -> dict[str, Any]:
-    """Отчёт для слайдов и экрана «Качество» из готовых прогонов: ``evaluate_<name>.json`` (rolling origin, dev и
-    holdout) и ``control_<name>.json`` (последние 30 дней каждой выписки — факт). Цифры — только holdout.
-
-    ``metrics.json`` — формат контракта: ``mae`` — средняя ошибка P50 относительно фактического остатка, ₽;
-    ``mape`` — медиана той же ошибки в долях месячного оборота (подпись в интерфейсе — «MAE, % оборота»);
-    ``coverage_80`` — доля дней, где фактический остаток внутри P10–P90; разрывы — по остатку без пополнений владельца.
-    """
     from .control import control_company
 
     ev = json.loads((out / f"evaluate_{name}.json").read_text(encoding="utf-8"))
@@ -408,23 +379,12 @@ def publish(out: Path, data: Path, name: str = "raw", demo: str = "C001") -> dic
         plot_errors({m: {**met[m], "balance_mae_pct_turnover_by_h": met[m].get("actual_balance_mae_pct_turnover_by_h")
                          or met[m]["balance_mae_pct_turnover_by_h"]} for m in met if not m.startswith("_")},
                     out / "errors.png")
-    except Exception:  # noqa: BLE001 — картинка не обязательна
+    except Exception:
         pass
     return contract
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Внутренний конвейер оценки на датасете организаторов.
-
-    1. ``split``     — разделить компании на dev / holdout (``core/reports/split.json``);
-    2. ``calibrate`` — бэктест dev-компаний «сырой» моделью, подбор множителя интервалов
-                       (``core/reports/calibration.json``); его вносят в ``schema.INTERVAL_SCALE``;
-    3. ``final``     — бэктест holdout-компаний в продуктовой конфигурации → ``metrics.json``
-                       (формат контракта), ``metrics.md``, ``errors.png``, ``metrics_detail.json``;
-    4. ``rebuild``   — пересобрать файлы отчёта из ``metrics_detail.json``;
-    5. ``publish``   — ``metrics.json`` и ``metrics.md`` из ``evaluate_raw.json`` и ``control_raw.json``
-                       (фактический остаток, бейзлайн «остаток не изменится», dev и holdout).
-    """
     from .evaluate import run, summarize, write_report
     from .schema import INTERVAL_SCALE
 

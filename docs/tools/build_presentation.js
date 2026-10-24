@@ -1,4 +1,3 @@
-// Сборка docs/presentation.pptx: node build.js <repoRoot>
 const path = require('path')
 const fs = require('fs')
 const pptxgen = require('pptxgenjs')
@@ -25,13 +24,12 @@ const THEME = {
 const HEX = { green: '0B3D2E', green2: '11553F', lime: '8DC63F', limeBg: 'EEF7E1', red: 'D23B3B', redBg: 'FDECEC', amber: 'D98A00', grey: '7A8A80', text: '13241C', text2: '4B5D53', bg2: 'F3F6F1', border: 'DFE6DA' }
 
 const pres = new pptxgen()
-pres.layout = 'LAYOUT_16x9' // 10 x 5.625
+pres.layout = 'LAYOUT_16x9'
 pres.theme = { headFontFace: THEME.headFontFace, bodyFontFace: THEME.bodyFontFace }
 pres.title = 'Денежный прогноз — прогноз остатка и кассовых разрывов для малого бизнеса'
 pres.author = 'Команда «Денежный прогноз»'
 const C = pres.SchemeColor
 
-// ---------- layouts ----------
 pres.defineSlideMaster({
   title: 'DARK',
   background: { color: C.text2 },
@@ -51,7 +49,6 @@ pres.defineSlideMaster({
   slideNumber: { x: 9.0, y: 5.25, w: 0.5, h: 0.25, fontSize: 9, color: C.accent6, align: 'right' },
 })
 
-// ---------- helpers ----------
 async function icon(Comp, color = '#FFFFFF', size = 256) {
   const svg = ReactDOMServer.renderToStaticMarkup(React.createElement(Comp, { color, size }))
   const buf = await sharp(Buffer.from(svg)).png().toBuffer()
@@ -67,11 +64,10 @@ async function dims(file) {
   if (!meta[file]) meta[file] = await sharp(path.join(SHOTS, file)).metadata()
   return meta[file]
 }
-/** Скриншот в тёмной рамке «экрана», вписанный в прямоугольник с сохранением пропорций */
 async function screen(slide, file, box, { crop, name } = {}) {
-  const m = await dims(file)  // crop — доля высоты: показать только верх картинки
+  const m = await dims(file)
   let iw = m.width, ih = m.height
-  if (crop) ih = Math.round(iw * crop) // обрезка снизу: высота = ширина × crop
+  if (crop) ih = Math.round(iw * crop)
   const frame = 0.08
   const maxW = box.w - 2 * frame, maxH = box.h - 2 * frame
   const k = Math.min(maxW / iw, maxH / ih)
@@ -96,15 +92,11 @@ function card(slide, x, y, w, h, fill = C.background2, name = 'card') {
 }
 const content = (section) => pres.addSlide({ masterName: 'CONTENT', sectionTitle: section })
 
-// Подтверждённые запуском цифры (24.10.2026): cashflow_core.evaluate на 73 holdout-компаниях; api.reports.sources_effect (часть A)
 const Q = { mae: 16, maeNaive: 21, maeEts: 19, cov: 80, recall: 72, lead: 14, precision: 46, n: 73, forecasts: 542 }
 const SRC_LABELS = ['Только выписка', '+ налоговый календарь', '+ 1С', '+ открытые реестры', '+ 1С + реестры']
 const SRC_VALUES = [1.80, 1.67, 1.27, 0.78, 0.51]
 const SRC_TAKEAWAY = 'Только по выписке разрыв 5 ноября не виден (вероятность 18%). С 1С и реестрами — найден, вероятность 75%.'
-// Слайды. Все цифры — из docs/demo_story.md, core/reports/metrics.md, api/reports/sources_effect.md.
-// crop в screen() — отношение высоты к ширине видимой части (показывается верх картинки).
 ;(async () => {
-  // 1. Титул
   pres.addSection({ title: 'Начало' })
   let s = pres.addSlide({ masterName: 'DARK', sectionTitle: 'Начало' })
   s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: 0.6, y: 0.7, w: 0.62, h: 0.62, rectRadius: 0.12, fill: { color: C.accent1 }, line: { type: 'none' }, objectName: 'logo mark' })
@@ -114,7 +106,6 @@ const SRC_TAKEAWAY = 'Только по выписке разрыв 5 ноябр
   s.addText('Предупреждаем предпринимателя о кассовом разрыве за 2 недели — и подсказываем, что сделать', { placeholder: 'body' })
   s.addNotes('Ведущий (10 с): Малый бизнес часто закрывается не из-за убытков, а потому что в нужный день на счёте нет денег. Мы сделали сервис, который за две недели говорит: когда не хватит, сколько и что сделать.')
 
-  // 2. Проблема
   pres.addSection({ title: 'Проблема и решение' })
   s = content('Проблема и решение')
   s.addText('Прибыльный бизнес, а на счёте −471 600 ₽', { placeholder: 'title' })
@@ -136,7 +127,6 @@ const SRC_TAKEAWAY = 'Только по выписке разрыв 5 ноябр
   s.addText('зарплата, налоги и аренда — по графику, а клиенты платят, когда платят; выписка показывает прошлое, а разрыв видно только в день платежа', { x: 6.05, y: 3.2, w: 3.45, h: 1.2, fontSize: 12, color: C.text2, margin: 0, valign: 'top', isTextBox: true, objectName: 'pain text' })
   s.addNotes('Ведущий (25 с): Это реальная выписка из датасета организаторов. IT-компания, прибыльная. 16 сентября на счёте 2,9 миллиона. В конце месяца налог и зарплата, клиент платит только 3 октября — и 1 октября на счёте минус 471 тысяча, банк берёт проценты за овердрафт.')
 
-  // 3. Решение
   s = content('Проблема и решение')
   s.addText('Три ответа на одном экране', { placeholder: 'title' })
   const sol = [
@@ -153,7 +143,6 @@ const SRC_TAKEAWAY = 'Только по выписке разрыв 5 ноябр
   await screen(s, '03_preduprezhdenie.png', { x: 4.55, y: 1.2, w: 4.95, h: 3.85 }, { name: 'risk card screenshot' })
   s.addNotes('Ведущий (20 с): Цель кейса — прогноз остатка по дням на 30+ дней, разрыв с датой, суммой и вероятностью, понятно человеку без финансового образования. Всё это — на главном экране.')
 
-  // 4. Демо: прогноз от 16.09 против факта
   pres.addSection({ title: 'Демо' })
   s = content('Демо')
   s.addText('Демо: прогноз от 16 сентября против факта', { placeholder: 'title' })
@@ -170,7 +159,6 @@ const SRC_TAKEAWAY = 'Только по выписке разрыв 5 ноябр
   }
   s.addNotes('Оператор (60 с): Нажимаем «Посмотреть демо», загружаем выписку этой компании по 16 сентября — будущего сервис не видит. Подключаем налоговый календарь. Главная: через 14 дней, 30 сентября, может не хватить 678 тысяч, вероятность 98%, и первое действие. Ведущий: на самом деле разрыв случился ровно 30 сентября, минус 472 тысячи. Сумму мы назвали больше: налог оценили выше факта.')
 
-  // 5. Что если и источники
   s = content('Демо')
   s.addText('«Что если» и источники: прогноз меняется сразу', { placeholder: 'title' })
   await screen(s, '06_chto_esli.png', { x: 0.5, y: 1.1, w: 5.1, h: 3.0 }, { name: 'scenario screenshot' })
@@ -183,7 +171,6 @@ const SRC_TAKEAWAY = 'Только по выписке разрыв 5 ноябр
   ], { x: 5.8, y: 3.85, w: 3.7, h: 1.2, fontSize: 12, color: C.text1, paraSpaceAfter: 4, margin: 0, valign: 'top', isTextBox: true, objectName: 'sources list' })
   s.addNotes('Оператор (40 с): «Что если»: клиент заплатит на три недели позже — нехватка вырастает до 1,47 миллиона. Платежи и источники: подключаем налоговый календарь, добавляем платёж обычной фразой — прогноз на главной меняется сразу.')
 
-  // 6. Источники данных
   pres.addSection({ title: 'Данные и подход' })
   s = content('Данные и подход')
   s.addText('Источники данных: каждый добавляет точность', { placeholder: 'title' })
@@ -210,7 +197,6 @@ const SRC_TAKEAWAY = 'Только по выписке разрыв 5 ноябр
   s.addText(SRC_TAKEAWAY, { x: 4.9, y: 4.35, w: 4.6, h: 0.7, fontSize: 12, bold: true, color: C.text2, margin: 0, valign: 'top', isTextBox: true, objectName: 'sources takeaway' })
   s.addNotes('Ведущий (25 с): Источники: api/reports/sources_effect.md — прогноз на 30 дней сравнивается с «как было на самом деле». 1С и банк в прототипе — загрузка выгрузок (в демо тестовые файлы), реестры — демонстрационная проверка по ИНН, налоговый календарь считается по выписке.')
 
-  // 7. Подход
   s = content('Данные и подход')
   s.addText('Как строим прогноз', { placeholder: 'title' })
   const pipe = [
@@ -234,7 +220,6 @@ const SRC_TAKEAWAY = 'Только по выписке разрыв 5 ноябр
   ], { x: 0.5, y: 3.95, w: 9.0, h: 1.0, fontSize: 13, color: C.text1, margin: 0, valign: 'top', isTextBox: true, objectName: 'pipe result' })
   s.addNotes('Ведущий (20 с): Модель объяснимая: каждая сумма в причине подписана источником. Прогноз детерминированный, работает без сети, на 150 компаниях — около 30 секунд.')
 
-  // 8. Качество
   s = content('Данные и подход')
   s.addText('Проверка качества: честный бэктест', { placeholder: 'title' })
   stat(s, 0.5, 1.15, 2.9, Q.mae + '%', 'ошибка остатка на 30 дней; у наивной модели ' + Q.maeNaive + '%', C.accent2, 'mae')
@@ -251,7 +236,6 @@ const SRC_TAKEAWAY = 'Только по выписке разрыв 5 ноябр
   s.addText(`150 компаний разделены на dev и holdout (по отраслям). Параметры — только на dev; цифры — только holdout: ${Q.n} компании, ${Q.forecasts} прогнозов на модель, rolling origin 8 × 30 дней.`, { x: 3.85, y: 4.17, w: 5.5, h: 0.8, fontSize: 11, color: C.text1, margin: 0, valign: 'middle', isTextBox: true, objectName: 'method text' })
   s.addNotes(`Ведущий (25 с): Источник: core/reports/metrics.md, перепроверено запуском cashflow_core.evaluate. Точность предупреждений о разрыве — ${Q.precision}%: каждое второе предупреждение ложное, но пропущенный разрыв для владельца дороже.`)
 
-  // 9. Архитектура и безопасность
   pres.addSection({ title: 'Архитектура' })
   s = content('Архитектура')
   s.addText('Архитектура и безопасность', { placeholder: 'title' })
@@ -268,7 +252,6 @@ const SRC_TAKEAWAY = 'Только по выписке разрыв 5 ноябр
   s.addText('web (React) → API (FastAPI, SQLite, интеграции) → ядро cashflow_core (Python). Единый контракт JSON.', { x: 0.5, y: 4.4, w: 9.0, h: 0.5, fontSize: 12, color: C.text2, margin: 0, isTextBox: true, objectName: 'architecture caption' })
   s.addNotes('Ведущий (20 с): Три части по общему контракту. Прототип открыт по HTTPS, демо — в один клик, у каждого гостя своя копия компании.')
 
-  // 10. Звёздочки и планы
   pres.addSection({ title: 'Итоги' })
   s = content('Итоги')
   s.addText('Сделано сверх минимума и что дальше', { placeholder: 'title' })
@@ -292,7 +275,6 @@ const SRC_TAKEAWAY = 'Только по выписке разрыв 5 ноябр
   ], { x: 7.15, y: 1.75, w: 2.35, h: 3.2, fontSize: 12, color: C.text1, paraSpaceAfter: 5, margin: 0, valign: 'top', isTextBox: true, objectName: 'next list' })
   s.addNotes('Ведущий (20 с): Все звёздочки на слайде работают в прототипе — их можно проверить по ссылке. Дальше — встроить в интернет-банк: выписка у банка уже есть.')
 
-  // 11. Итог
   s = pres.addSlide({ masterName: 'DARK', sectionTitle: 'Итоги' })
   s.addText('Предупреждаем о разрыве заранее и говорим, что делать', { placeholder: 'title' })
   s.addText(`Прогноз на 30+ дней по дням · дата, сумма и вероятность разрыва · ошибка ${Q.mae}% против ${Q.maeNaive}% у наивной модели · реальный разрыв 30.09.2025 — за 14 дней`, { placeholder: 'body' })

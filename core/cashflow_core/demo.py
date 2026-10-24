@@ -1,9 +1,3 @@
-"""CLI-демо: ``python -m cashflow_core.demo data/raw/statements/C001.csv``.
-
-Печатает текущий остаток, прогноз по неделям, риски разрывов с причинами и
-рекомендациями, регулярные платежи и предупреждения. ``--json out.json`` —
-сохранить полный ForecastResult.
-"""
 from __future__ import annotations
 
 import argparse

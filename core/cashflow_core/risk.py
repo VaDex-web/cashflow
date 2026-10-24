@@ -1,23 +1,3 @@
-"""Риски для владельца бизнеса (п.5 задания).
-
-Два уровня риска, оба из одних и тех же симуляций:
-
-1. **Кассовый разрыв** — остаток уходит ниже нуля (``threshold``, по умолчанию 0 ₽):
-   денег не хватит на платежи, в том числе обязательные (зарплата, налоги, аренда, кредит).
-2. **Ниже подушки безопасности** — остаток опускается ниже минимального комфортного
-   остатка владельца (``comfort_balance``; по умолчанию — расходы примерно за 7 дней).
-   Платежи проходят, но запаса почти нет. Такой риск показывается, только если в эти
-   дни нет риска разрыва.
-
-Для каждого риска:
-
-* ``date`` — первый день, когда событие вероятнее, чем нет (p ≥ 0.5), иначе день максимальной вероятности;
-* ``probability`` — максимальная за эпизод доля траекторий ниже порога;
-* ``shortfall_amount`` — сколько денег нужно, чтобы закрыть нехватку в 9 случаях из 10 (P90 среди
-  траекторий, где она случилась);
-* ``reason`` — что случится, когда, на какую сумму и почему, с источником каждой суммы;
-* ``recommendations`` — 2–3 варианта действий, доступных владельцу.
-"""
 from __future__ import annotations
 
 import math
@@ -33,9 +13,7 @@ from .schema import GAP_PROBABILITY_LIKELY, GAP_PROBABILITY_REPORT
 if TYPE_CHECKING:
     from .engine import ForecastState, Plan, PlannedItem, SimResult
 
-#: С какой вероятности показывать риск «ниже подушки» (ниже — шум, а не предупреждение).
 COMFORT_PROBABILITY_REPORT = 0.25
-#: Обязательные платежи: их переносить нельзя или очень дорого.
 MANDATORY = ("payroll", "taxes", "loans", "rent")
 
 _ACCUSATIVE = {
@@ -59,7 +37,6 @@ SOURCE_LABELS = {
 
 
 def source_label(it: "PlannedItem") -> str:
-    """Откуда взялась сумма — простыми словами."""
     if it.ref == "scenario":
         return "сценарий"
     if it.kind == "tax":
@@ -97,7 +74,6 @@ def _episodes(p: np.ndarray, min_p: float, merge_gap: int = 2) -> list[tuple[int
 
 
 def severity(prob: float, days_until: int) -> str:
-    """Кассовый разрыв: high — p ≥ 0.6 или (p ≥ 0.4 и ≤ 7 дней); medium — p ≥ 0.25; иначе low."""
     if prob >= 0.6 or (prob >= 0.4 and days_until <= 7):
         return "high"
     if prob >= 0.25:
@@ -106,7 +82,6 @@ def severity(prob: float, days_until: int) -> str:
 
 
 def gap_summary(plan: "Plan", sim: "SimResult", threshold: float) -> dict[str, Any]:
-    """Вероятности по дням, первая вероятная дата разрыва, P90 максимальной нехватки."""
     bal = sim.balances
     p = (bal < threshold).mean(axis=0)
     deficit = np.maximum(threshold - bal, 0).max(axis=1)
@@ -130,15 +105,10 @@ def _episode_stats(bal: np.ndarray, p: np.ndarray, level: float, a: int, b: int)
 
 
 def find_risks(state: "ForecastState", plan: "Plan", sim: "SimResult", with_kind: bool = False) -> list[dict[str, Any]]:
-    """Список рисков в формате контракта, по дате.
-
-    ``with_kind=True`` добавляет поле ``kind``: ``"gap"`` (остаток < 0) или ``"below_comfort"``
-    (ниже подушки безопасности) — для машинного вывода :mod:`predict`; в ответе API его нет.
-    """
     thr = float(state.settings.get("threshold", 0.0))
     comfort = float(state.settings.get("comfort_balance") or 0.0)
     if state.settings.get("account_closed"):
-        return []  # счёт закрыт — вместо риска предупреждение в warnings
+        return []
     bal = sim.balances
     p50 = np.median(bal, axis=0)
     p10 = np.quantile(bal, 0.1, axis=0)
@@ -164,11 +134,11 @@ def find_risks(state: "ForecastState", plan: "Plan", sim: "SimResult", with_kind
         p_c = (bal < comfort).mean(axis=0)
         for a, b in _episodes(p_c, COMFORT_PROBABILITY_REPORT):
             if a in gap_days:
-                continue  # в эти дни уже есть риск разрыва — он важнее
+                continue
             end = a
             while end < b and end + 1 not in gap_days:
                 end += 1
-            b = end  # «ниже подушки» — только дни до разрыва
+            b = end
             k, prob, shortfall = _episode_stats(bal, p_c, comfort, a, b)
             risks.append((k, {
                 "kind": "below_comfort",
@@ -187,9 +157,6 @@ def find_risks(state: "ForecastState", plan: "Plan", sim: "SimResult", with_kind
 
 
 def _worst_case_deficit(state: "ForecastState", plan: "Plan", b: int, thr: float) -> float:
-    """Верхняя граница нехватки к дню ``b``: если не придёт вообще ничего, а списания будут на 50% выше обычного.
-
-    Ограничивает «хвост» симуляций разумным уровнем (иначе у коротких и «рваных» историй — десятки миллионов)."""
     from .engine import _known_net
 
     rate_out = float(state.settings.get("rate_out", 0.0))
@@ -200,7 +167,6 @@ def _worst_case_deficit(state: "ForecastState", plan: "Plan", b: int, thr: float
 
 
 def _pct(prob: float) -> int:
-    """Проценты как на бейдже в интерфейсе (Math.round)."""
     return int(math.floor(prob * 100 + 0.5))
 
 
@@ -223,7 +189,7 @@ def _late_client_text(plan: "Plan", k: int, gap_size: float) -> str:
     if not late:
         return ""
     it = max(late, key=lambda x: x.expected_amount)
-    when = day_month(plan.dates[min(it.day + it.day_shift, plan.horizon - 1)])  # та же дата, что и в советах
+    when = day_month(plan.dates[min(it.day + it.day_shift, plan.horizon - 1)])
     return (f" Если {it.counterparty} заплатит позже ({rub(it.expected_amount)} ожидается {when}, "
             f"{source_label(it)}), нехватка будет больше.")
 
@@ -284,11 +250,9 @@ def _round_up(x: float) -> float:
 
 def _recommendations(state: "ForecastState", plan: "Plan", k: int, a: int, b: int, shortfall: float,
                      gap: bool) -> list[str]:
-    """2–3 варианта действий владельца. Формулируются как варианты, не как приказ."""
     recs: list[str] = []
     d = plan.dates[k]
     end_ep = plan.dates[b] + timedelta(days=1)
-    # 1. попросить клиента оплатить раньше
     incoming = [it for it in plan.items if it.direction == "in" and it.counterparty and it.category == "revenue"
                 and k - 5 <= it.day + it.day_shift <= k + 21]
     if incoming:
@@ -296,8 +260,6 @@ def _recommendations(state: "ForecastState", plan: "Plan", k: int, a: int, b: in
         when = plan.dates[min(it.day + it.day_shift, plan.horizon - 1)]
         recs.append(f"Можно попросить {it.counterparty} оплатить {rub(it.expected_amount)} до {day_month(d)} — "
                     f"сейчас оплата ожидается {day_month(when)} ({source_label(it)}).")
-    # 2. перенести платёж, который можно перенести (не зарплату и не налоги)
-    # дивиденды и выплаты владельцу — не «платёж контрагенту»: отсрочку по ним не советуем
     movable = [it for it in plan.items if it.direction == "out" and it.movable and a - 3 <= it.day + it.day_shift <= b
                and not OWNER_FLOW_RE.search(f"{it.counterparty} {it.name}")]
     mandatory_near = any((it.category in ("payroll", "taxes") or it.kind == "tax")
@@ -310,7 +272,6 @@ def _recommendations(state: "ForecastState", plan: "Plan", k: int, a: int, b: in
         if mandatory_near:
             txt += " Зарплату и налоги лучше не переносить: за просрочку будут штрафы и пени."
         recs.append(txt)
-    # 3. заёмные деньги — только как вариант, с суммой и сроком
     if gap and shortfall > 0 and plan.start_balance < 0:
         recs.append(f"Счёт уже в минусе: можно обсудить с банком лимит овердрафта не меньше "
                     f"{rub(_round_up(shortfall))} или вернуть деньги со счетов в других банках.")
@@ -319,14 +280,12 @@ def _recommendations(state: "ForecastState", plan: "Plan", k: int, a: int, b: in
                     "заранее обсудите с банком овердрафт и уточните ожидаемые оплаты клиентов.")
     elif gap and shortfall > 0:
         days = max(3, (b - a) + 3)
-        # не больше нужного до нуля и не больше трёх месячных расходов бизнеса
         cap = 3 * 30 * float(state.settings.get("rate_out", 0.0)) or shortfall
         amount = _round_up(min(shortfall, cap))
         tail = (" Разброс прогноза большой — сначала уточните ожидаемые оплаты клиентов."
                 if shortfall > cap else " Заранее сравните стоимость в банке.")
         recs.append(f"Если перенести платежи не получится, можно рассмотреть овердрафт или кредит примерно на "
                     f"{rub(amount)} на {plural_days(days)}.{tail}")
-    # 4. мягкие варианты
     if len(recs) < 3:
         recs.append("Можно попросить предоплату у клиентов по новым заказам и выставить счета пораньше.")
     if len(recs) < 2:

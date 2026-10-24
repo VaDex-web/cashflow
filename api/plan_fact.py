@@ -1,12 +1,3 @@
-"""План-факт: сравнение ожидаемых событий и регулярных платежей с фактическими операциями.
-
-* ``reconcile`` — сопоставляет события с операциями выписки: оплачено (``paid``, дата и сумма факта),
-  просрочено (``overdue`` — срок прошёл, оплаты нет), частичная оплата, опоздание.
-* ``build`` — план и факт по неделям (или дням) + список отклонений на русском языке.
-
-План периода = события источников с датой в этом периоду + регулярные платежи ядра (``recurring``), которые
-не закрыты событиями + «фон» (обычный недельный поток вне регулярных платежей за 12 недель до окна).
-"""
 from __future__ import annotations
 
 import re
@@ -27,7 +18,7 @@ _LOAN_RX = re.compile(r"(?i)кредит|лизинг|займ")
 @dataclass
 class Match:
     event_id: str
-    status: str                    # paid | overdue | expected
+    status: str
     paid_date: date | None = None
     paid_amount: float | None = None
     late_days: int = 0
@@ -65,7 +56,6 @@ def _same_cp(ev: EventView, name: str, inn: str) -> bool:
 
 
 def _window(ev: EventView) -> tuple[int, int, float, float, bool]:
-    """(дней до, дней после, мин. доля суммы, макс. доля, нужен ли контрагент)."""
     if ev.type == "tax":
         return 5, 5, 0.5, 1.6, False
     if ev.type == "payroll":
@@ -78,7 +68,6 @@ def _window(ev: EventView) -> tuple[int, int, float, float, bool]:
 
 
 def reconcile(events: Iterable[EventView], tx: pd.DataFrame, as_of: date, grace_days: int = 1) -> list[Match]:
-    """Найти фактические оплаты событий в выписке. Каждая операция закрывает не больше одного события."""
     out: list[Match] = []
     if tx is None or not len(tx):
         return out
@@ -120,12 +109,11 @@ def reconcile(events: Iterable[EventView], tx: pd.DataFrame, as_of: date, grace_
         elif ev.date < as_of - timedelta(days=grace_days) and ev.status != "paid":
             out.append(Match(ev.id, "overdue"))
         elif ev.status == "overdue" and ev.date > as_of:
-            out.append(Match(ev.id, "expected"))      # срок перенесли в будущее
+            out.append(Match(ev.id, "expected"))
     return out
 
 
 def _recurring_dates(p: dict[str, Any], start: date, end: date) -> list[date]:
-    """Прошлые даты регулярного платежа: месячные — то же число каждого месяца с переносом выходных."""
     from .integrations.base import next_business_day, prev_business_day
 
     try:
@@ -158,7 +146,6 @@ def _recurring_dates(p: dict[str, Any], start: date, end: date) -> list[date]:
 
 def build(tx: pd.DataFrame, events: list[EventView], recurring: list[dict[str, Any]], as_of: date, matches: list[Match],
           weeks: int = 8, period: str = "week") -> list[dict[str, Any]]:
-    """Строки PlanFact (контракт) за последние ``weeks`` недель (или 14 дней при period=day)."""
     t = tx.copy() if tx is not None else pd.DataFrame(columns=["date", "amount", "direction", "counterparty_name", "counterparty_inn", "purpose"])
     t["_d"] = pd.to_datetime(t["date"]).dt.date
     if period == "day":
@@ -173,11 +160,10 @@ def build(tx: pd.DataFrame, events: list[EventView], recurring: list[dict[str, A
     matched_tx = {m.tx_index for m in matches if m.tx_index is not None}
     ev_dates = [(e.direction, e.date, e.amount) for e in events]
 
-    # регулярные платежи, не закрытые событиями
     rec_occ: list[tuple[str, date, float, str, float]] = []
     for p in recurring or []:
         if float(p.get("period_days") or 0) < 5:
-            continue          # ежедневные потоки (эквайринг) — в «фоне»
+            continue
         for d in _recurring_dates(p, w0 - timedelta(days=84), as_of + timedelta(days=1)):
             amt = float(p.get("amount_avg") or 0.0)
             covered = any(dr == p["direction"] and abs((d - ed).days) <= 5 and 0.5 <= amt / max(ea, 1.0) <= 2.0
@@ -185,7 +171,6 @@ def build(tx: pd.DataFrame, events: list[EventView], recurring: list[dict[str, A
             if not covered and amt > 0:
                 rec_occ.append((p["direction"], d, amt, str(p.get("name", "")), float(p.get("confidence") or 0)))
 
-    # «фон»: средний поток за 12 недель до окна за вычетом регулярных и событий
     hist = t[(t["_d"] >= w0 - timedelta(days=84)) & (t["_d"] < w0)]
     days_hist = max(1, min(84, (w0 - min(t["_d"])).days)) if len(t) else 84
     bucket_days = step.days
@@ -232,14 +217,12 @@ def build(tx: pd.DataFrame, events: list[EventView], recurring: list[dict[str, A
                 elif ev.type == "tax" and abs(m.paid_amount - ev.amount) > max(0.15 * ev.amount, 30_000):
                     diff = m.paid_amount - ev.amount
                     devs.append({"event_id": ev.id, "text": f"Налоговый платёж {'больше' if diff > 0 else 'меньше'} оценки на {rub(abs(diff))}"})
-        # регулярные поступления, которые не пришли (последние 2 недели)
         for dr, d, a, name, conf in rec_occ:
             if s <= d < e_ and d <= as_of - timedelta(days=2) and d >= as_of - timedelta(days=14) and conf >= 0.7 and dr == "in":
                 hit = t[(t["direction"] == dr) & (t["_d"] >= d - timedelta(days=4)) & (t["_d"] <= min(as_of, d + timedelta(days=4)))
                         & (t["amount"] >= 0.6 * a) & (t["amount"] <= 1.4 * a)]
                 if not len(hit):
                     devs.append({"event_id": f"rec-{d.isoformat()}", "text": f"Регулярное поступление «{name}» не пришло (ожидали ~{day_month(d)}, около {rub(a)})"})
-        # крупные внеплановые операции
         big = []
         for i, r in week_tx.iterrows():
             if i in matched_tx:
@@ -257,7 +240,7 @@ def build(tx: pd.DataFrame, events: list[EventView], recurring: list[dict[str, A
             devs.append({"event_id": f"tx-{r['_d'].isoformat()}-{int(r['amount'])}",
                          "text": f"Внеплановое {kind} {rub(float(r['amount']))}" + (f" — {cp}" if cp else "") + f" ({day_month(r['_d'])})"})
         if s <= as_of < e_ and period == "week":
-            pass   # текущая неделя не закончилась — итоговые отклонения по сумме не считаем
+            pass
         else:
             if planned["in"] > 0 and actual["in"] < 0.8 * planned["in"] and planned["in"] - actual["in"] >= 50_000:
                 devs.append({"event_id": f"period-{s.isoformat()}-in", "text": f"Поступления ниже плана на {rub(planned['in'] - actual['in'])} ({actual['in'] / planned['in'] - 1:.0%})"})

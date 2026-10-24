@@ -1,4 +1,3 @@
-"""Прогноз для контрольного датасета: CLI-обёртка и POST /api/predict без входа."""
 from __future__ import annotations
 
 import csv
@@ -48,7 +47,7 @@ def test_cli_run_and_files(tmp_path):
     info = json.loads(j.read_text(encoding="utf-8"))["companies"][0]
     assert info["as_of"] == "2026-10-23" and all({"date", "shortfall_amount", "probability"} <= set(r) for r in info["risks"])
     rows2, _ = pr.run(comps, horizon=30, n_sims=300)
-    assert rows == rows2                                     # детерминированно (seed фиксирован)
+    assert rows == rows2
 
 
 @pytest.mark.skipif(not core_available(), reason="cashflow_core недоступен")

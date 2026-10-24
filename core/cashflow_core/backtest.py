@@ -1,29 +1,3 @@
-"""Честная проверка качества: rolling-origin бэктест (п.6 задания).
-
-Для каждой даты отсечения ``o`` модель видит только операции до ``o`` включительно
-(категоризатор, регулярные платежи, налоги и модели потоков обучаются заново),
-прогнозирует 30 дней и сравнивается с фактом.
-
-Подходы:
-
-* ``flat`` — «остаток не изменится» (самый простой бейзлайн; интервал — по прошлым изменениям остатка за h дней);
-* ``naive`` — повтор последних 28 дней поступлений и списаний;
-* ``ets`` — сезонный профиль (уровень × тип дня × «как год назад») по всем потокам;
-* ``hybrid`` — регулярные платежи + налоговая модель + остаточные потоки (ETS/бустинг,
-  выбор по прошлым ошибкам) + Monte Carlo. Это продуктовая модель.
-
-Интервалы у всех подходов строятся одинаково — по эмпирическим ошибкам прошлых
-прогнозов, — чтобы сравнение было честным.
-
-Ошибка остатка считается двумя способами: по фактическому ``balance_eod`` (так прогноз
-сравнивают с реальностью) и по остатку **без «спасательных» поступлений** (как в продукте).
-
-Разрыв для метрик precision/recall считается по остатку **без «спасательных»
-поступлений** (пополнения собственными средствами, займы учредителя, транши):
-в данных владелец часто закрывает дыру сам, и по фактическому остатку разрыва
-«не было», хотя деньги кончились. Отсечки, где остаток уже отрицательный,
-в метрики разрывов не входят (там предупреждать уже поздно).
-"""
 from __future__ import annotations
 
 import time
@@ -47,10 +21,10 @@ DEFAULT_MODELS = ("flat", "naive", "ets", "hybrid")
 
 @dataclass
 class OriginForecast:
-    balances: np.ndarray       # (n_sims, H)
-    exp_in: np.ndarray         # ожидаемые дневные поступления
+    balances: np.ndarray
+    exp_in: np.ndarray
     exp_out: np.ndarray
-    state: Any = None          # состояние гибрида (для проверки регулярных платежей без переобучения)
+    state: Any = None
 
 
 def _baseline(daily_hist: pd.DataFrame, name: str, H: int, n_sims: int, seed: int, b0: float,
@@ -73,7 +47,6 @@ def _baseline(daily_hist: pd.DataFrame, name: str, H: int, n_sims: int, seed: in
 
 
 def _flat(daily_hist: pd.DataFrame, H: int, n_sims: int, seed: int, b0: float) -> OriginForecast:
-    """«Остаток не изменится»: медиана — текущий остаток, разброс — прошлые изменения остатка за 1…H дней."""
     bal = daily_hist["balance_reported"].where(daily_hist["balance_reported"].notna(), daily_hist["balance"])
     b = bal.ffill().to_numpy(dtype=float)
     n = len(b) - H
@@ -81,7 +54,7 @@ def _flat(daily_hist: pd.DataFrame, H: int, n_sims: int, seed: int, b0: float) -
     if n < 5:
         return OriginForecast(np.full((n_sims, H), b0), zeros, zeros)
     paths = np.array([b[s + 1:s + H + 1] - b[s] for s in range(n)])
-    paths = paths - np.median(paths, axis=0)  # центр — «не изменится»
+    paths = paths - np.median(paths, axis=0)
     pick = np.random.default_rng([seed, 1]).integers(0, n, n_sims)
     return OriginForecast(b0 + paths[pick], zeros, zeros)
 
@@ -123,10 +96,6 @@ def _origins(daily: pd.DataFrame, H: int, n_origins: int, step: int, min_train: 
 
 
 def _recurring_hits(tx: pd.DataFrame, origin: date, H: int, state: Any) -> dict[str, Any]:
-    """Точность расписания регулярных платежей: пришёл ли платёж группы в ±3 дня от ожидаемой даты.
-
-    Берёт паттерны и категоризатор из состояния гибрида на этой отсечке (оба обучены только на прошлом).
-    """
     from .recurring import _cp_key
 
     if state is None or not state.patterns or state.categorizer is None:
@@ -161,20 +130,12 @@ def backtest(df: Any, *, horizon: int = 30, n_origins: int = 8, step: int = 21, 
              models: Iterable[str] = DEFAULT_MODELS, n_sims: int = 500, seed: int = 42, threshold: float = 0.0,
              company_id: str | None = None, hybrid_model: str = "auto", recurring_check: bool = True,
              interval_scale: float = 1.0) -> dict[str, Any]:
-    """Rolling-origin бэктест одной компании.
-
-    Returns:
-        ``{"company_id", "origins": [...], "records": {model: [запись по отсечке]}, "recurring": {...},
-        "metrics": {model: агрегаты}}``. Запись по отсечке содержит ошибки по дням и разрывы —
-        из них :func:`aggregate` считает метрики по многим компаниям.
-    """
     tx = df if isinstance(df, pd.DataFrame) and "tx_id" in df.columns else load_statement(df, company_id=company_id)
     cid = str(company_id or tx.attrs.get("company_id") or "unknown")
     tx = tx.copy()
     tx.attrs = {}
     from .categorize import rule_category
 
-    # Только для разметки «спасательных» поступлений в ФАКТЕ (не в модели): одни правила, без обучения.
     tx_cat = tx.copy()
     tx_cat["category"] = [rule_category(p, n, d)[0] or "other"
                           for p, n, d in zip(tx["purpose"], tx["counterparty_name"], tx["direction"])]
@@ -184,7 +145,6 @@ def backtest(df: Any, *, horizon: int = 30, n_origins: int = 8, step: int = 21, 
     H = int(horizon)
     origins = _origins(daily, H, n_origins, step, min_train)
     if not origins and len(daily) >= 45 + H:
-        # короткая история: до 3 отсечек с шагом 14 дней и минимум 45 днями обучения (упрощённый режим модели)
         origins = _origins(daily, H, min(3, n_origins), 14, 45)
     records: dict[str, list[dict[str, Any]]] = {m: [] for m in models}
     rec_stats = {"n": 0, "hits": 0, "amount_ape": []}
@@ -195,7 +155,6 @@ def backtest(df: Any, *, horizon: int = 30, n_origins: int = 8, step: int = 21, 
         for m in models:
             t0 = time.time()
             try:
-                # interval_scale: 1.0 — «сырая» модель (для калибровки на dev), иначе — продуктовая настройка
                 if m == "flat":
                     fc = _flat(daily.loc[:pd.Timestamp(o)], H, n_sims, seed, act["b0"])
                 elif m == "hybrid":
@@ -204,14 +163,14 @@ def backtest(df: Any, *, horizon: int = 30, n_origins: int = 8, step: int = 21, 
                     fc = _hybrid(tx, o, H, n_sims, seed, m.split("_", 1)[1], interval_scale)
                 else:
                     fc = _baseline(daily.loc[:pd.Timestamp(o)], m, H, n_sims, seed, act["b0"], rescue_daily)
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 log.warning("backtest model failed: %s %s", m, type(exc).__name__)
                 continue
             if fc.state is not None and hybrid_state is None:
                 hybrid_state = fc.state
             q = np.quantile(fc.balances, [INTERVAL_LOW_Q, 0.5, INTERVAL_HIGH_Q], axis=0)
             p_gap = (fc.balances < threshold).mean(axis=0)
-            target = act["need"]  # все модели прогнозируют остаток без «спасательных» пополнений
+            target = act["need"]
             records[m].append({
                 "origin": o.isoformat(), "b0": act["b0"], "turnover30": turnover,
                 "err": (q[1] - target).tolist(),
@@ -237,20 +196,19 @@ def backtest(df: Any, *, horizon: int = 30, n_origins: int = 8, step: int = 21, 
                     rec_stats["n"] += r["n"]
                     rec_stats["hits"] += r["hits"]
                     rec_stats["amount_ape"] += r["amount_ape"]
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 log.warning("recurring check failed: %s", type(exc).__name__)
     out = {"company_id": cid, "origins": [o.isoformat() for o in origins], "records": records, "recurring": rec_stats}
     out["metrics"] = aggregate([out])
     return out
 
 
-# --------------------------------------------------------------------------- aggregation
 def _gap_metrics(recs: list[dict[str, Any]], key: str) -> dict[str, Any]:
     tp = fp = fn = tn = 0
     leads, date_err, brier = [], [], []
     for r in recs:
         if r["b0"] < 0:
-            continue  # уже в минусе — предупреждать поздно, в метрики не берём
+            continue
         act = np.array(r[key], dtype=bool)
         p = np.array(r["p_gap"])
         pred = p >= GAP_PROBABILITY_LIKELY
@@ -281,7 +239,6 @@ def _gap_metrics(recs: list[dict[str, Any]], key: str) -> dict[str, Any]:
 
 
 def aggregate(results: list[dict[str, Any]]) -> dict[str, Any]:
-    """Свести записи бэктеста по многим компаниям в метрики по моделям."""
     models = sorted({m for r in results for m in r["records"]})
     out: dict[str, Any] = {}
     for m in models:
@@ -308,7 +265,6 @@ def aggregate(results: list[dict[str, Any]]) -> dict[str, Any]:
         aa = np.abs(np.array([x["bal_act"] for x in recs])) if has_act else None
         out[m] = {
             "n_forecasts": len(recs),
-            # по фактическому остатку (balance_eod) — так прогноз сравнивают с реальностью
             "actual_balance_mae_rub": round(float(np.abs(ea).mean()), 0),
             "actual_balance_wape": round(float(np.abs(ea).sum() / max(aa.sum(), 1.0)), 4) if has_act else None,
             "actual_balance_mae_pct_turnover": round(float(np.median((np.abs(ea) / turn).mean(axis=1))), 4),
@@ -317,7 +273,6 @@ def aggregate(results: list[dict[str, Any]]) -> dict[str, Any]:
             "actual_coverage_p10_p90": round(float(np.mean([x["covered_actual"] for x in recs])), 4) if has_act else None,
             "actual_balance_mae_pct_turnover_by_h": [round(float(np.median(np.abs(ea[:, h]) / turn[:, 0])), 4)
                                                      for h in range(H)],
-            # по остатку без «спасательных» пополнений владельца (как в продукте)
             "balance_mae_rub": round(float(np.abs(err).mean()), 0),
             "balance_wape": round(float(np.abs(err).sum() / max(absact.sum(), 1.0)), 4),
             "balance_mae_pct_turnover": round(float(np.median(rel.mean(axis=1))), 4),
@@ -345,11 +300,6 @@ def aggregate(results: list[dict[str, Any]]) -> dict[str, Any]:
 
 def calibrate_interval_scale(results: list[dict[str, Any]], model: str = "hybrid", target: float = 0.8,
                              grid: Iterable[float] = tuple(np.round(np.arange(0.8, 3.01, 0.05), 2))) -> dict[str, Any]:
-    """Подобрать множитель ширины интервала на РАННИХ отсечках каждой компании и проверить на ПОЗДНИХ.
-
-    Интервал после калибровки: [p50 − k·(p50 − P10), p50 + k·(P90 − p50)]. Если в записях нет
-    отдельных границ (старый формат), используется симметричное приближение width/2 — это помечается.
-    """
     early, late = [], []
     exact = True
     for r in results:
@@ -364,7 +314,7 @@ def calibrate_interval_scale(results: list[dict[str, Any]], model: str = "hybrid
         nonlocal exact
         hits = tot = 0
         for x in recs:
-            e = np.array(x["err"])  # p50 − факт
+            e = np.array(x["err"])
             if "lo_off" in x:
                 lo, hi = np.array(x["lo_off"]), np.array(x["hi_off"])
             else:
@@ -382,7 +332,6 @@ def calibrate_interval_scale(results: list[dict[str, Any]], model: str = "hybrid
 
 
 def _coverage_with_scale(results: list[dict[str, Any]], k: float, model: str = "hybrid") -> float:
-    """Покрытие P10–P90 после растяжения интервала в k раз вокруг медианы (точно, по записанным границам)."""
     hits = tot = 0
     for r in results:
         for x in r["records"].get(model, []):
@@ -395,13 +344,11 @@ def _coverage_with_scale(results: list[dict[str, Any]], k: float, model: str = "
 
 
 def calibrate_on(results: list[dict[str, Any]], model: str = "hybrid", target: float = 0.8) -> float:
-    """Подобрать k по всем отсечкам переданных (dev) компаний."""
     grid = np.round(np.arange(0.8, 3.01, 0.05), 2)
     return float(min(grid, key=lambda k: abs(_coverage_with_scale(results, k, model) - target)))
 
 
 def compare_models(df: Any, **kwargs: Any) -> pd.DataFrame:
-    """Таблица метрик (строки — подходы) для слайда."""
     res = df if isinstance(df, dict) and "records" in df else backtest(df, **kwargs)
     met = res["metrics"] if "metrics" in res else res
     return metrics_table(met)

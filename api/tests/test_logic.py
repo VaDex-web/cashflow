@@ -1,5 +1,3 @@
-"""Логика без HTTP: разбор выписок, налоговый календарь, договоры, счета, 1С, банк, реестры, ручной ввод,
-план-факт и маскирование логов."""
 from __future__ import annotations
 
 import logging
@@ -27,7 +25,6 @@ def ctx_for(cid: str, legal_form: str = "ООО") -> CompanyContext:
                           fixtures_dir=SYN / "integrations" / cid)
 
 
-# --------------------------------------------------------------------------- выписка
 def test_parse_values():
     assert parse_amount("1 234,56") == 1234.56
     assert parse_amount("−300 ₽") == -300
@@ -67,11 +64,10 @@ def test_parse_errors():
         parse_statement_bytes("просто текст без таблицы\nещё строка".encode())
 
 
-# --------------------------------------------------------------------------- налоговый календарь
 def test_business_days():
-    assert not is_business_day(date(2026, 11, 4))            # День народного единства
-    assert next_business_day(date(2026, 11, 28)) == date(2026, 11, 30)   # суббота → понедельник
-    assert is_business_day(date(2025, 11, 1))                # рабочая суббота
+    assert not is_business_day(date(2026, 11, 4))
+    assert next_business_day(date(2026, 11, 28)) == date(2026, 11, 30)
+    assert is_business_day(date(2025, 11, 1))
 
 
 def test_tax_calendar_osno():
@@ -80,11 +76,11 @@ def test_tax_calendar_osno():
     assert tc.regime(c)["regime"] == "osno"
     ev = tc.fetch(c)
     dates = [e.date for e in ev]
-    assert date(2026, 10, 28) in dates and date(2026, 11, 30) in dates    # 28.11.2026 — суббота
+    assert date(2026, 10, 28) in dates and date(2026, 11, 30) in dates
     oct28 = next(e for e in ev if e.date == date(2026, 10, 28))
     assert oct28.type == "tax" and oct28.source == "tax_calendar" and oct28.direction == "out"
     assert "НДС за 3 кв. 2026" in oct28.note and "налог на прибыль" in oct28.note
-    assert 1_000_000 < oct28.amount < 2_300_000                       # факт в «будущем» — 1,54 млн
+    assert 1_000_000 < oct28.amount < 2_300_000
 
 
 def test_tax_calendar_usn_advances_only_quarterly():
@@ -95,10 +91,9 @@ def test_tax_calendar_usn_advances_only_quarterly():
     assert with_usn and all(e.date.month in (1, 4, 7, 10) or e.date.month == 3 for e in with_usn)
     oct28 = next(e for e in ev if e.date.month == 10 and e.date.year == 2026)
     plain = next(e for e in ev if e.date.month == 11)
-    assert oct28.amount > plain.amount       # в октябре — аванс за 9 месяцев
+    assert oct28.amount > plain.amount
 
 
-# --------------------------------------------------------------------------- договоры и счета
 def test_contract_schedule_prepayment_and_deferral():
     raw = ('[{"number": "17", "counterparty_name": "ООО «Покупатель»", "direction": "in", "total_amount": 1000000,'
            ' "signed_date": "2026-10-26", "prepayment_percent": 30, "deferral_days": 14, "delivery_date": "2026-11-10"}]')
@@ -119,7 +114,7 @@ def test_invoices_statuses():
     st = {e.counterparty: (e.status, e.amount) for e in ev}
     assert st["ООО «А»"] == ("overdue", 100000.0)
     assert st["ООО «Б»"][0] == "paid"
-    assert st["ООО «В»"] == ("expected", 60000.0)              # 15.10 + 10 дней отсрочки, остаток 60 000
+    assert st["ООО «В»"] == ("expected", 60000.0)
 
 
 def test_onec_bank_registry_fixtures():
@@ -142,10 +137,9 @@ def test_bank_mock_from_history_without_file():
     ev = Bank().fetch(c)
     loans = [e for e in ev if e.type == "loan"]
     assert loans and all(e.date > c.as_of and e.amount == 245000 for e in loans if "КД-2024/0187" in e.note)
-    assert not any(e.type == "payroll" for e in ev)          # без файла банка ведомости не придумываются
+    assert not any(e.type == "payroll" for e in ev)
 
 
-# --------------------------------------------------------------------------- ручной ввод
 @pytest.mark.parametrize("text,direction,amount,day", [
     ("клиент обещал заплатить 300 000 ₽ 20-го", "in", 300000, date(2026, 11, 20)),
     ("в декабре куплю оборудование за 1 млн рублей", "out", 1_000_000, date(2026, 12, 1)),
@@ -164,7 +158,6 @@ def test_parse_text_needs_amount():
         parse_text("клиент обещал заплатить 20-го", date(2026, 10, 23))
 
 
-# --------------------------------------------------------------------------- план-факт
 def test_plan_fact_overdue_paid_and_texts():
     tx = pd.DataFrame([
         {"date": "2026-10-09", "amount": 140000.0, "direction": "in", "counterparty_name": "ООО «Кофейня Ромашка»",
@@ -182,7 +175,7 @@ def test_plan_fact_overdue_paid_and_texts():
     m = {x.event_id: x for x in reconcile(events, tx, date(2026, 10, 23))}
     assert m["a"].status == "overdue"
     assert m["b"].status == "paid" and m["b"].paid_date == date(2026, 10, 9)
-    assert m["c"].paid_amount == 135000.0                          # частичная оплата
+    assert m["c"].paid_amount == 135000.0
     rows = build(tx, events, [], date(2026, 10, 23), list(m.values()), weeks=3)
     texts = [d["text"] for r in rows for d in r["deviations"]]
     assert any("ООО «Пекарня Лакомка» не оплатил счёт №301 на 210" in t for t in texts)
@@ -191,7 +184,6 @@ def test_plan_fact_overdue_paid_and_texts():
     assert [r["period"] for r in rows] == ["2026-10-05", "2026-10-12", "2026-10-19"]
 
 
-# --------------------------------------------------------------------------- логи
 def test_log_masking():
     s = mask("ИНН 0012345678 и 001234567890, сумма 1 234 567,89 ₽ и 250000.00, ООО «Ромашка», a@b.ru")
     assert "0012345678" not in s and "001234567890" not in s

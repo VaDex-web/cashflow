@@ -1,4 +1,3 @@
-"""Эндпоинты /api по docs/contract.md (п. 4) + расширения (CRUD событий, загрузка файлов источников, разбор фразы)."""
 from __future__ import annotations
 
 from datetime import date
@@ -24,7 +23,6 @@ EXCLUDE_NONE: dict[str, Any] = {"response_model_exclude_none": True}
 
 
 async def read_upload(file: UploadFile, request: Request) -> bytes:
-    """Прочитать файл с ограничением размера (413 с понятным текстом)."""
     limit = get_settings().max_upload_bytes
     cl = request.headers.get("content-length")
     if cl and cl.isdigit() and int(cl) > limit + 1024 * 64:
@@ -39,7 +37,6 @@ async def read_upload(file: UploadFile, request: Request) -> bytes:
     return bytes(buf)
 
 
-# --------------------------------------------------------------------------- служебные
 @router.get("/health", response_model=Health, tags=["служебные"], summary="Проверка работы сервиса")
 def health() -> dict[str, Any]:
     core = get_core()
@@ -59,12 +56,11 @@ def login(body: LoginRequest, session: Session = Depends(get_session)) -> dict[s
 def demo_login(session: Session = Depends(get_session)) -> dict[str, Any]:
     if not get_settings().demo_company:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Демо-вход выключен")
-    from .demo import create_guest  # noqa: PLC0415
+    from .demo import create_guest
 
     return {"access_token": create_token(create_guest(session)), "token_type": "bearer"}
 
 
-# --------------------------------------------------------------------------- компании
 @router.post("/companies", response_model=CompanyCreated, tags=["компании"], **EXCLUDE_NONE,
              summary="Загрузить выписку (CSV) — создаётся компания")
 async def upload_company(request: Request, file: UploadFile = File(..., description="CSV-выписка"),
@@ -112,7 +108,6 @@ def put_settings(cid: str, body: CompanySettingsIn, user: str = Depends(current_
     return svc.update_settings(session, svc.get_company(session, cid, user, write=True), body.model_dump(exclude_unset=True))
 
 
-# --------------------------------------------------------------------------- прогноз для проверки (без входа)
 @router.post("/predict", tags=["проверка"], summary="Прогноз по файлу без входа: остаток по дням и риски для каждой компании",
              description="Для тестов и контрольного датасета. Вход — CSV в формате датасета организаторов (одна или "
                          "несколько компаний). Для каждой компании прогноз строится от её последней даты, без данных из "
@@ -145,7 +140,6 @@ def _split_companies(df: Any) -> dict[str, Any]:
     return {str(cid): part.reset_index(drop=True) for cid, part in df.groupby(df["company_id"].str.strip(), sort=True)}
 
 
-# --------------------------------------------------------------------------- «Как это работает» (для жюри)
 @router.get("/metrics", tags=["как это работает"], summary="Качество прогноза: бэктест ядра (core/reports/metrics.json)")
 def metrics(user: str = Depends(current_user)) -> Any:
     import json
@@ -169,7 +163,6 @@ def metrics_sources(user: str = Depends(current_user)) -> Any:
     return summary(json.loads(p.read_text(encoding="utf-8")))
 
 
-# --------------------------------------------------------------------------- прогноз
 @router.get("/companies/{cid}/forecast", response_model=ForecastResult, tags=["прогноз"], **EXCLUDE_NONE,
             summary="Прогноз остатка по дням, риски разрывов, регулярные платежи")
 def get_forecast(cid: str, horizon: int = Query(30, ge=7, le=365), user: str = Depends(current_user),
@@ -217,7 +210,6 @@ def plan_fact(cid: str, weeks: int = Query(8, ge=1, le=26), period: Literal["wee
     return svc.plan_fact(session, svc.get_company(session, cid, user), weeks, period)
 
 
-# --------------------------------------------------------------------------- события
 @router.get("/companies/{cid}/events", response_model=list[Event], tags=["события"], **EXCLUDE_NONE,
             summary="Ожидаемые события из всех источников")
 def list_events(cid: str, user: str = Depends(current_user), session: Session = Depends(get_session)) -> list[Event]:
@@ -235,7 +227,7 @@ def add_event(cid: str, body: EventCreate, user: str = Depends(current_user), se
 def parse_event(cid: str, body: EventParseRequest, save: bool = False, user: str = Depends(current_user),
                 session: Session = Depends(get_session)) -> dict[str, Any]:
     company = svc.get_company(session, cid, user, write=save)
-    today = svc.as_of_of(session, company) or date.today()   # «сегодня» — дата последней операции выписки
+    today = svc.as_of_of(session, company) or date.today()
     try:
         ev, understood = parse_text(body.text, today)
     except ValueError as exc:
@@ -269,7 +261,6 @@ def remove_event(cid: str, event_id: str, user: str = Depends(current_user), ses
     svc.delete_event(session, svc.get_company(session, cid, user, write=True), event_id)
 
 
-# --------------------------------------------------------------------------- интеграции
 @router.post("/companies/{cid}/integrations/{name}/sync", response_model=SyncResponse, tags=["источники"], **EXCLUDE_NONE,
              summary="Синхронизировать источник: bank | 1c | tax_calendar | registry | contracts | invoices")
 def sync(cid: str, name: IntegrationName, user: str = Depends(current_user), session: Session = Depends(get_session)) -> dict[str, Any]:

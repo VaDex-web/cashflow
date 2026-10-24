@@ -192,7 +192,6 @@ function ManualForm({ companyId, onAdded }: { companyId: string; onAdded(): void
   )
 }
 
-/** Платёж обычной фразой: сервер разбирает её, человек видит «как поняли» и подтверждает */
 function PhraseInput({ companyId, onAdded }: { companyId: string; onAdded(): void }) {
   const [text, setText] = useState('')
   const [draft, setDraft] = useState<{ event: NewCashEvent; understood: string } | null>(null)
@@ -231,7 +230,6 @@ function PhraseInput({ companyId, onAdded }: { companyId: string; onAdded(): voi
 
   return (
     <div style={{ display: 'grid', gap: 8 }}>
-      {/* не <form>: блок стоит внутри формы ручного ввода */}
       <div className="row" style={{ gap: 8, flexWrap: 'nowrap' }}>
         <input className="input" placeholder="Например: клиент обещал заплатить 300 000 ₽ 20-го" value={text}
           onChange={(e) => { setText(e.target.value); setDraft(null) }} aria-label="Платёж обычной фразой"

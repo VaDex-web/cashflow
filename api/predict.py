@@ -1,20 +1,3 @@
-"""Прогноз для проверки на контрольном датасете — без регистрации и без интерфейса.
-
-Для каждой компании берётся последняя дата её выписки, прогноз остатка строится на ``horizon`` дней вперёд
-только по операциям до этой даты (без событий из источников, порог разрыва 0 ₽, фиксированный seed).
-Тот же результат, что ``python -m cashflow_core.predict``: ядро вызывается через его публичную функцию ``forecast``.
-
-    python -m api.predict data/raw/statements --horizon 30 --out predictions.csv --workers 4
-    python -m api.predict data/raw/all_operations.csv --out out/pred.csv
-    python -m api.predict file.csv --api http://localhost:8000          # то же через POST /api/predict
-
-Пишет два файла:
-* ``<out>.csv`` — ``company_id;date;balance_forecast;balance_low;balance_high`` (UTF-8, разделитель «;» — как датасет);
-* ``<out>_risks.json`` — по компаниям: последняя дата, остаток, риски разрывов (дата, сумма нехватки, вероятность),
-  предупреждения.
-
-Формат входа — как в ``data/raw/README.md`` (колонки датасета организаторов); файл или папка с CSV.
-"""
 from __future__ import annotations
 
 import os
@@ -22,18 +5,18 @@ import os
 for _v in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS"):
     os.environ.setdefault(_v, "1")
 
-import argparse  # noqa: E402
-import csv  # noqa: E402
-import io  # noqa: E402
-import json  # noqa: E402
-import sys  # noqa: E402
-import time  # noqa: E402
-from concurrent.futures import ProcessPoolExecutor  # noqa: E402
-from datetime import date, datetime, timedelta, timezone  # noqa: E402
-from pathlib import Path  # noqa: E402
-from typing import Any  # noqa: E402
+import argparse
+import csv
+import io
+import json
+import sys
+import time
+from concurrent.futures import ProcessPoolExecutor
+from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
+from typing import Any
 
-import pandas as pd  # noqa: E402
+import pandas as pd
 
 ROOT = Path(__file__).resolve().parents[1]
 SEED = 42
@@ -43,12 +26,10 @@ CSV_FIELDS = ["company_id", "date", "balance_forecast", "balance_low", "balance_
 
 
 class PredictError(ValueError):
-    """Ошибка входного файла — текст для человека."""
+    pass
 
 
-# --------------------------------------------------------------------------- вход
 def read_csv_bytes(raw: bytes, name: str = "файл") -> pd.DataFrame:
-    """Выписка в формате датасета (UTF-8 с BOM или без, «;»). ИНН — строкой."""
     if not raw.strip():
         raise PredictError(f"{name}: файл пустой")
     try:
@@ -66,8 +47,6 @@ def read_csv_bytes(raw: bytes, name: str = "файл") -> pd.DataFrame:
 
 
 def read_inputs(path: str | Path) -> dict[str, pd.DataFrame]:
-    """Файл или папка → {company_id: операции}. В папке: файлы с операциями (справочник companies.csv пропускается);
-    если компания встречается и в отдельной выписке, и в all_operations.csv — берётся отдельная выписка."""
     p = Path(path)
     if not p.exists():
         raise PredictError(f"Не найден путь {p}")
@@ -79,7 +58,7 @@ def read_inputs(path: str | Path) -> dict[str, pd.DataFrame]:
             df = read_csv_bytes(f.read_bytes(), f.name)
         except PredictError:
             if p.is_dir():
-                continue          # справочники и посторонние CSV в папке пропускаем
+                continue
             raise
         for cid, part in df.groupby(df["company_id"].str.strip(), sort=True):
             out.setdefault(str(cid), part.reset_index(drop=True))
@@ -88,30 +67,27 @@ def read_inputs(path: str | Path) -> dict[str, pd.DataFrame]:
     return out
 
 
-# --------------------------------------------------------------------------- прогноз
 def _core():
     sys.path.insert(0, os.getenv("CORE_PATH", str(ROOT / "core")))
-    import cashflow_core  # noqa: PLC0415
+    import cashflow_core
 
     return cashflow_core
 
 
 def predict_company(cid: str, df: pd.DataFrame, horizon: int = 30, n_sims: int = 2000, seed: int = SEED
                     ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    """Прогноз одной компании от её последней даты. Не бросает исключений: проблемы — в warnings."""
     t0 = time.time()
     warnings: list[str] = []
     res: dict[str, Any] = {}
     try:
         res = _core().forecast(df, [], horizon, company_id=cid, n_sims=n_sims, seed=seed, threshold=0.0)
         warnings = list(res.get("warnings") or [])
-    except Exception as exc:  # noqa: BLE001 — на контрольном датасете не падаем
+    except Exception as exc:
         warnings.append(f"Прогноз ядра не построен ({type(exc).__name__}) — показан неизменный остаток.")
     daily = res.get("daily") or []
     as_of = res.get("as_of")
     balance = res.get("current_balance")
     if not daily:
-        # запасной вариант: остаток последнего дня без изменений
         d = pd.to_datetime(df["operation_date"], errors="coerce")
         last = d.max()
         bal = pd.to_numeric(df["balance_eod"].str.replace(",", ".", regex=False), errors="coerce")
@@ -153,7 +129,6 @@ def run(companies: dict[str, pd.DataFrame], horizon: int = 30, workers: int = 1,
     return rows, meta
 
 
-# --------------------------------------------------------------------------- выход
 def to_csv(rows: list[dict[str, Any]]) -> str:
     buf = io.StringIO()
     w = csv.DictWriter(buf, fieldnames=CSV_FIELDS, delimiter=";", lineterminator="\n")
@@ -174,7 +149,7 @@ def write(rows: list[dict[str, Any]], meta: dict[str, Any], out: str | Path) -> 
 
 
 def _via_api(path: Path, url: str, horizon: int) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    import httpx  # noqa: PLC0415
+    import httpx
 
     files = [path] if path.is_file() else sorted(path.glob("*.csv"))
     rows, comps = [], []

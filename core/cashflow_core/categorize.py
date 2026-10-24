@@ -1,21 +1,3 @@
-"""Категоризация операций (п.2 задания).
-
-Трёхступенчатая схема:
-
-1. **Правила** — регулярные выражения по назначению платежа и названию
-   контрагента. Перед проверкой из текста вырезаются «хвосты» про НДС
-   («в т.ч. НДС 20%», «Без НДС») — иначе любая оплата поставщику похожа на налог.
-2. **Память контрагента** — если у ИНН/названия контрагента большинство операций
-   уже уверенно размечено правилами, неразмеченные операции того же контрагента
-   (например, с пустым назначением) получают ту же категорию.
-3. **ML-запас** — TF-IDF (символьные n-граммы назначения и контрагента +
-   направление + порядок суммы) и логистическая регрессия, обученные на
-   уверенной разметке правил. Применяется к строкам, где правила не уверены.
-
-Результат: колонки ``category`` (код из :data:`schema.CATEGORIES`),
-``category_label``, ``category_confidence`` (0..1) и ``category_source``
-(rule | counterparty | ml | default).
-"""
 from __future__ import annotations
 
 import re
@@ -35,20 +17,16 @@ _NDS_TAIL = re.compile(
     r"|ндс\s+не\s+облагается\.?|без\s+налога\s*\(?ндс\)?\.?|без\s+ндс\.?|ндс\s+не\s+предусмотрен\w*\.?|ндс\s+нет\.?)"
 )
 
-#: Решения владельца, а не обязательства бизнеса: дивиденды, займы учредителя и их возврат, взносы в капитал.
-#: Прогноз их не ожидает (владелец решает сам, когда и сколько), и отсрочку по ним не советует.
 OWNER_FLOW_RE = re.compile(r"дивиденд|учредител|участник\w*\s+обществ|уставн\w*\s+капитал", re.IGNORECASE)
 
 
 def owner_flow_mask(df: pd.DataFrame) -> pd.Series:
-    """True для операций между бизнесом и его владельцем (по назначению или названию контрагента)."""
     if df is None or not len(df):
         return pd.Series(False, index=getattr(df, "index", None), dtype=bool)
     text = df["purpose"].fillna("").astype(str) + " " + df["counterparty_name"].fillna("").astype(str)
     return text.str.contains(OWNER_FLOW_RE)
 
 
-# (категория, допустимые направления, regex, уверенность). Порядок = приоритет.
 _RULES: list[tuple[str, tuple[str, ...], str, float]] = [
     ("bank_fees", ("out",), r"комисси\w*\s+(за|банка|по)|плата\s+за\s+(аренду\s+)?pos|pos-терминал|ведени\w*\s+счет"
                             r"|обслуживани\w*\s+(расчетного\s+)?счет|\bрко\b|тарифн\w*\s+план|пакет\s+услуг|sms-информ|смс-информ", 0.95),
@@ -77,14 +55,11 @@ _COMPILED = [(c, d, re.compile(p), conf) for c, d, p, conf in _RULES]
 
 _TAX_COUNTERPARTY = re.compile(r"казначейств|\bфнс\b|\bифнс\b|\bуфк\b.*фнс|налогов")
 
-#: Уверенность, начиная с которой разметка правил считается «эталонной» для обучения ML.
 STRONG = 0.85
-#: Строки с уверенностью ниже этого порога пробуем улучшить памятью контрагента и ML.
 WEAK = 0.7
 
 
 def normalize_text(purpose: str, counterparty: str = "") -> str:
-    """Нижний регистр, ё→е, без хвостов про НДС, без лишних пробелов."""
     s = f"{purpose or ''}".lower().replace("ё", "е")
     s = _NDS_TAIL.sub(" ", s)
     s = re.sub(r"\s+", " ", s).strip()
@@ -100,7 +75,6 @@ def _cp_key(inn: str, name: str) -> str:
 
 
 def rule_category(purpose: str, counterparty_name: str, direction: str) -> tuple[str | None, float]:
-    """Применить правила к одной операции. Возвращает (категория|None, уверенность)."""
     text = normalize_text(purpose)
     cp = (counterparty_name or "").lower().replace("ё", "е")
     if text:
@@ -110,7 +84,7 @@ def rule_category(purpose: str, counterparty_name: str, direction: str) -> tuple
     if direction == "out" and _TAX_COUNTERPARTY.search(cp):
         return "taxes", 0.9
     if direction == "in":
-        return "revenue", 0.55  # большинство поступлений малого бизнеса — выручка
+        return "revenue", 0.55
     return None, 0.0
 
 
@@ -127,18 +101,11 @@ def _ml_text(purpose: str, cp_name: str, direction: str, amount: float) -> str:
 
 @dataclass
 class Categorizer:
-    """Обученный категоризатор: память контрагентов + ML-модель.
-
-    Хранится в состоянии прогноза, чтобы новые операции в :func:`update_forecast`
-    размечались без переобучения.
-    """
-
     cp_memory: dict[tuple[str, str], tuple[str, float]] = field(default_factory=dict)
     model: Any = None
     classes: list[str] = field(default_factory=list)
     n_train: int = 0
 
-    # ---------------------------------------------------------------- fitting
     def fit(self, df: pd.DataFrame, rule_cat: pd.Series, rule_conf: pd.Series, seed: int = 42) -> "Categorizer":
         strong = rule_conf >= STRONG
         keys = [_cp_key(i, n) for i, n in zip(df["counterparty_inn"], df["counterparty_name"])]
@@ -159,7 +126,6 @@ class Categorizer:
 
             texts = [_ml_text(p, n, d, a) for p, n, d, a in zip(
                 df.loc[strong, "purpose"], df.loc[strong, "counterparty_name"], df.loc[strong, "direction"], df.loc[strong, "amount"])]
-            # ограничиваем объём обучения, чтобы ядро оставалось быстрым
             if len(texts) > 6000:
                 rs = np.random.default_rng(seed)
                 sel = rs.choice(len(texts), 6000, replace=False)
@@ -174,9 +140,7 @@ class Categorizer:
             self.n_train = len(texts)
         return self
 
-    # ---------------------------------------------------------------- predict
     def predict_ml(self, purpose: list[str], names: list[str], dirs: list[str], amounts: list[float]) -> tuple[list[str | None], np.ndarray]:
-        """ML-предсказание с маской допустимых направлений категории."""
         if self.model is None or not len(purpose):
             return [None] * len(purpose), np.zeros(len(purpose))
         texts = [_ml_text(p, n, d, a) for p, n, d, a in zip(purpose, names, dirs, amounts)]
@@ -191,7 +155,6 @@ class Categorizer:
         return cats, conf
 
     def transform(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Разметить операции (правила → память контрагента → ML)."""
         out = df.copy()
         out.attrs = {}
         if not len(out):
@@ -230,7 +193,6 @@ class Categorizer:
 
 
 def fit_categorizer(df: pd.DataFrame, seed: int = 42) -> Categorizer:
-    """Обучить категоризатор на выписке (разметка правилами → память → ML)."""
     res = [rule_category(p, n, d) for p, n, d in zip(df["purpose"], df["counterparty_name"], df["direction"])]
     rule_cat = pd.Series([r[0] for r in res], index=df.index, dtype=object)
     rule_conf = pd.Series([r[1] for r in res], index=df.index, dtype=float)
@@ -240,12 +202,6 @@ def fit_categorizer(df: pd.DataFrame, seed: int = 42) -> Categorizer:
 
 
 def categorize(df: pd.DataFrame, categorizer: Categorizer | None = None) -> pd.DataFrame:
-    """Добавить колонки ``category``, ``category_label``, ``category_confidence``, ``category_source``.
-
-    Args:
-        df: результат :func:`load_statement`.
-        categorizer: готовый категоризатор (если None — обучается на этих же данных).
-    """
     if df is None or not len(df):
         out = df.copy() if df is not None else pd.DataFrame()
         for c in ("category", "category_label", "category_source"):
@@ -254,14 +210,11 @@ def categorize(df: pd.DataFrame, categorizer: Categorizer | None = None) -> pd.D
         return out
     cz = categorizer or fit_categorizer(df)
     out = cz.transform(df)
-    # В attrs только лёгкие данные: pandas глубоко копирует attrs при каждой операции.
     out.attrs = dict(df.attrs)
     return out
 
 
-# --------------------------------------------------------------------------- evaluation
 def classification_metrics(y_true: list[str] | pd.Series, y_pred: list[str] | pd.Series) -> dict[str, Any]:
-    """Accuracy, macro-F1 и F1 по классам."""
     from sklearn.metrics import accuracy_score, f1_score
 
     yt, yp = list(map(str, y_true)), list(map(str, y_pred))
@@ -278,14 +231,6 @@ def classification_metrics(y_true: list[str] | pd.Series, y_pred: list[str] | pd
 
 def evaluate_categorization(df: pd.DataFrame, true_col: str | None = None, seed: int = 42,
                             holdout_share: float = 0.3) -> dict[str, Any]:
-    """Честная оценка качества категоризации.
-
-    * ``coverage`` — доля операций, уверенно размеченных правилами;
-    * ``ml_holdout`` — ML обучается на 70% уверенной разметки, проверяется на 30%,
-      **у которых назначение платежа скрыто** (имитация пустого назначения): так
-      оценивается именно запасной механизм, а не повтор правил;
-    * ``vs_truth`` — если есть колонка с истинной категорией, полный пайплайн против неё.
-    """
     from sklearn.model_selection import train_test_split
 
     res = [rule_category(p, n, d) for p, n, d in zip(df["purpose"], df["counterparty_name"], df["direction"])]

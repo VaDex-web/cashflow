@@ -1,33 +1,4 @@
 #!/usr/bin/env python3
-"""Генератор синтетических банковских выписок малого бизнеса (демо и тесты).
-
-Пять компаний из разных отраслей, 1,5–2 года истории, формат как у датасета организаторов
-(docs/contract.md, п. 1.1): CSV, UTF-8 с BOM, разделитель «;», колонки
-company_id; operation_id; operation_date; amount; direction; counterparty_inn;
-counterparty_name; payment_purpose; balance_eod. ``--format internal`` — внутренний формат (п. 1.2).
-
-Что заложено:
-* операции только в рабочие дни по производственному календарю РФ 2024–2026 (с переносами);
-* зарплата 2 раза в месяц (аванс и расчёт), аренда, коммунальные, кредиты и лизинг;
-* налоги: ЕНП до 28-го (НДФЛ и взносы), авансы по УСН (28.04, 28.07, 28.10, годовой — 28.03/28.04),
-  НДС по кварталам тремя частями (ОСНО 20% → 22% с 2026 г.; УСН с НДС 5% с 2026 г. при выручке > 20 млн);
-* недельная и сезонная выручка, рост, крупные клиенты с отсрочкой и задержками;
-* «грязь» реальных выписок: дубли строк, пустые назначения и ИНН, разные написания ЕНП,
-  переводы собственных средств в другой банк и обратно, возвраты ошибочных платежей, пропуски дней;
-* S02 «B2B-услуги» — демо-витрина: крупный клиент задерживает оплату, через ~2 недели после
-  последней операции наступает кассовый разрыв (подробно — demo_scenario.md);
-* S03 «Строительство» — настоящий кассовый разрыв (овердрафт) в истории, февраль 2026.
-
-Кроме выписок пишет:
-* ``companies.csv`` — справочник в формате ``data/raw/companies.csv``;
-* ``future/<id>.csv`` — «как было на самом деле» 45 дней после последней операции
-  (для честной проверки прогноза и отчёта о вкладе источников; в загрузку не идёт);
-* ``integrations/<id>/`` — тестовые данные источников: 1c_export.json, bank.json, registry.json,
-  contracts.json, invoices.csv — согласованы с выпиской и «будущим».
-
-Запуск (детерминированно, seed): ``python data/synthetic/generate.py``
-Параметры: ``--out DIR``, ``--end YYYY-MM-DD`` (последний день выписки), ``--seed N``, ``--format raw|internal``.
-"""
 from __future__ import annotations
 
 import argparse
@@ -43,7 +14,6 @@ from typing import Any, Callable
 
 import numpy as np
 
-# --------------------------------------------------------------------------- календарь РФ
 _HOLIDAYS = {
     2024: ["01-01", "01-02", "01-03", "01-04", "01-05", "01-08", "02-23", "03-08", "04-29", "04-30", "05-01",
            "05-09", "05-10", "06-12", "11-04", "12-30", "12-31"],
@@ -58,7 +28,6 @@ WORKING_WEEKENDS = {date.fromisoformat(f"{y}-{md}") for y, l in _WORKING_WEEKEND
 
 
 def is_bd(d: date) -> bool:
-    """Рабочий день по производственному календарю."""
     if d in WORKING_WEEKENDS:
         return True
     return d.weekday() < 5 and d not in HOLIDAYS
@@ -112,7 +81,6 @@ def dmy(d: date) -> str:
     return d.strftime("%d.%m.%Y")
 
 
-# --------------------------------------------------------------------------- модель данных
 @dataclass(frozen=True)
 class Party:
     name: str
@@ -120,7 +88,6 @@ class Party:
 
 
 def fake_inn(name: str, person: bool = False) -> str:
-    """Обезличенный ИНН: детерминирован по имени, начинается с «00», как в датасете организаторов."""
     h = hashlib.sha256(name.encode("utf-8")).hexdigest()
     digits = "".join(str(int(c, 16) % 10) for c in h)
     return "00" + digits[:(12 if person else 10) - 2]
@@ -130,7 +97,7 @@ def P(name: str, person: bool = False, inn: str | None = None) -> Party:
     return Party(name, inn if inn is not None else fake_inn(name, person))
 
 
-BANK = Party("ПАО «Банк»", "0068275202")          # как в датасете: банк, где открыт счёт
+BANK = Party("ПАО «Банк»", "0068275202")
 FNS = Party("Казначейство России (ФНС России)", "7727406020")
 NO_PERSON = Party("Физическое лицо", "")
 OTHER_BANK = "АО «Банк-2»"
@@ -152,8 +119,6 @@ ENP_VARIANTS = ["Единый налоговый платеж", "ЕНП", "Ед�
 
 
 class Book:
-    """Операции одной компании за весь период (история + «будущее»)."""
-
     def __init__(self, cid: str, name: str, inn: str, legal_form: str, industry: str, start: date, end: date,
                  rng: np.random.Generator, regime: str, future_days: int = 45):
         self.cid, self.name, self.inn, self.legal_form, self.industry = cid, name, inn, legal_form, industry
@@ -167,12 +132,11 @@ class Book:
         self.expense_by_q: dict[tuple[int, int], float] = {}
         self.input_vat_by_q: dict[tuple[int, int], float] = {}
         self.payroll_by_m: dict[tuple[int, int], float] = {}
-        self.policy: list[tuple[date, Any, str]] = []   # (дата, keep | "auto", получатель)
+        self.policy: list[tuple[date, Any, str]] = []
         self.target_end: float | None = None
         self.start_balance = 0.0
         self.notes: list[str] = []
 
-    # ---- базовые
     def add(self, d: date, direction: str, amount: float, party: Party, purpose: str, kind: str = "",
             shift: str = "forward", meta: dict[str, Any] | None = None, revenue: bool = False,
             expense: bool = False, vat_in: float = 0.0) -> Op | None:
@@ -200,13 +164,11 @@ class Book:
         return float(np.exp(sigma * self.rng.standard_normal() - 0.5 * sigma ** 2))
 
     def vat_text(self, amount: float, d: date) -> str:
-        """Фраза об НДС в назначении для операций самой компании."""
         rate = vat_rate(self.regime, d)
         if not rate:
             return "НДС не облагается"
         return f"в т.ч. НДС ({rate}%) {money(amount * rate / (100 + rate))}"
 
-    # ---- регулярные шаблоны
     def monthly(self, day: int, direction: str, amount: Callable[[int, int], float], party: Party,
                 purpose: Callable[[int, int], str], kind: str, shift: str = "forward", expense: bool = True,
                 start: date | None = None, until: date | None = None, vat: bool = False) -> None:
@@ -220,7 +182,6 @@ class Book:
 
     def payroll(self, fot: Callable[[int, int], float], advance_day: int = 25, salary_day: int = 10,
                 advance_share: float = 0.4, employees: int = 10, bonus_month: float = 0.0) -> None:
-        """Аванс за текущий месяц и расчёт за прошлый через зарплатный проект (сдвиг назад с выходных)."""
         reg = 10 + int(self.rng.integers(0, 30))
         for y, m in month_iter(self.start, self.fut_end):
             total = fot(y, m) * self.noise(0.02)
@@ -248,7 +209,6 @@ class Book:
 
     def taxes(self, contributions_k: float = 0.40, usn_reduction: float = 0.5, fixed_ip: bool = False,
               profit_margin: float = 0.08) -> None:
-        """ЕНП 28-го: НДФЛ+взносы за прошлый месяц + авансы УСН / НДС / налог на прибыль."""
         for y, m in month_iter(self.start, self.fut_end):
             py, pm = add_months(y, m, -1)
             base = self.payroll_by_m.get((py, pm), 0.0) * contributions_k
@@ -267,7 +227,6 @@ class Book:
                 if tax > 0:
                     extra += tax
                     parts.append(f"УСН за {y - 1} г.")
-            # НДС: три равные части 28-го в каждый из трёх месяцев после квартала
             vq = (y - 1, 4) if m <= 3 else (y, (m - 1) // 3)
             rate = vat_rate(self.regime, date(vq[0], vq[1] * 3, 1))
             if rate:
@@ -278,7 +237,6 @@ class Book:
                 if vat > 0:
                     extra += vat
                     parts.append(f"НДС за {vq[1]} кв. {vq[0]} г. (1/3)")
-            # налог на прибыль: авансы 28.04, 28.07, 28.10 и годовой 28.03
             if self.regime == "osno" and m in (3, 4, 7, 10):
                 pq = (y - 1, 4) if m == 3 else (y, (m - 1) // 3)
                 rev = self.revenue_by_q.get(pq, 0.0) / (1 + vat_rate("osno", date(pq[0], pq[1] * 3, 1)) / 100)
@@ -307,14 +265,12 @@ class Book:
         exp = self.expense_by_q.get(q, 0.0)
         return max((rev - exp) * 0.15, rev * 0.01 / 4)
 
-    # ---- политика остатка: вывод «лишних» денег собственником
     def withdraw_policy(self, dates_keep: list[tuple[date, Any]], party: Party, purpose: str) -> None:
         for d, keep in dates_keep:
             self.policy.append((next_bd(d), keep, purpose))
         self._policy_party = party
 
     def finalize(self) -> list[Op]:
-        """Отсортировать, применить политику вывода средств и посчитать остатки на конец дня."""
         self.ops.sort(key=lambda o: (o.date, 0 if o.direction == "in" else 1))
         net_by_day: dict[date, float] = {}
         for o in self.ops:
@@ -345,7 +301,6 @@ def vat_rate(regime: str, d: date) -> int:
     return 0
 
 
-# --------------------------------------------------------------------------- общие хелперы потоков
 def season(table: dict[int, float], d: date) -> float:
     return table.get(d.month, 1.0)
 
@@ -370,7 +325,6 @@ def weekly(start: date, end: date, weekday: int):
 
 def acquiring(b: Book, sales: Callable[[date], float], share: float, fee: float = 0.018, sbp: float = 0.0,
               cash: float = 0.0) -> None:
-    """Выручка с карт: зачисление на следующий рабочий день за каждый день продаж; СБП; инкассация."""
     cash_acc = 0.0
     for d in every_day(b.start - timedelta(days=3), b.fut_end):
         s = sales(d)
@@ -404,7 +358,6 @@ def supplier_weekly(b: Book, party: Party, weekday: int, amount: Callable[[date]
 
 def add_dirt(rows: list[dict[str, Any]], rng: np.random.Generator, dup: int, empty_purpose: float,
              empty_inn: float, gap: tuple[date, int] | None, protect: Callable[[dict[str, Any]], bool]) -> list[dict[str, Any]]:
-    """Дубли выгрузки, пустые поля, пропуск нескольких рабочих дней."""
     out = []
     for r in rows:
         r = dict(r)
@@ -427,7 +380,6 @@ def add_dirt(rows: list[dict[str, Any]], rng: np.random.Generator, dup: int, emp
     return out
 
 
-# --------------------------------------------------------------------------- S01 кофейня
 def gen_coffee(b: Book) -> None:
     sz = {1: 0.78, 2: 0.9, 3: 0.98, 4: 1.0, 5: 1.08, 6: 1.12, 7: 1.1, 8: 1.07, 9: 1.0, 10: 0.98, 11: 0.96, 12: 1.17}
     wk = [1.0, 0.96, 0.98, 1.0, 1.12, 1.32, 1.22]
@@ -475,7 +427,6 @@ def gen_coffee(b: Book) -> None:
     b.payroll(lambda y, m: 390_000 * growth(date(y, m, 1), b.start, 0.1), advance_day=25, salary_day=10, employees=9)
     b.taxes(contributions_k=0.40, usn_reduction=0.5)
 
-    # переводы собственных средств и возврат ошибочного платежа
     b.add(date(2025, 6, 16), "out", 400_000, b.me, f"Перевод собственных средств на расчетный счет в {OTHER_BANK}. НДС не облагается", "transfers")
     b.add(date(2025, 7, 14), "in", 400_000, b.me, f"Перевод собственных средств с расчетного счета в {OTHER_BANK}. НДС не облагается", "transfers")
     b.add(date(2025, 3, 11), "out", 61_250.40, roaster, "Оплата по счету №388 от 07.03.2025 за кофе зерновой. в т.ч. НДС (20%) 10 208,40", "suppliers")
@@ -487,14 +438,11 @@ def gen_coffee(b: Book) -> None:
     b.target_end = 610_000
 
 
-# --------------------------------------------------------------------------- S02 B2B-услуги (демо)
 ANCHOR = P("АО «ДонТрансЛогистика»")
 
 
 def gen_b2b(b: Book) -> None:
-    """ИТ-аутсорсинг для бизнеса: крупные клиенты по абонентским договорам с отсрочкой (ОСНО, НДС)."""
     clients = [
-        # party, сумма в мес. с НДС (2024), рабочих дней отсрочки, рост в год, начало, договор
         (ANCHOR, 2_050_000, 15, 0.06, b.start, "Д-17/2023"),
         (P("ООО «Агро-Юг Трейд»"), 980_000, 7, 0.05, b.start, "Д-04/2024"),
         (P("ООО «МедЦентр Здоровье»"), 540_000, 3, 0.04, b.start, "Д-21/2024"),
@@ -516,25 +464,23 @@ def gen_b2b(b: Book) -> None:
             if party is ANCHOR:
                 late = int(b.rng.integers(0, 3)) if r < 0.75 else int(b.rng.integers(3, 7))
                 if (sy, sm) == (2025, 12):
-                    late = 13               # декабрьский счёт после каникул: та самая задержка в истории
+                    late = 13
                 if (sy, sm) == (2026, 9):
-                    late = None             # сентябрьский счёт не оплачен к концу выписки — демо
+                    late = None
             else:
                 late = 0 if r < 0.8 else int(b.rng.integers(1, 5))
             meta = {"invoice": {"number": str(inv_no), "issued": issued.isoformat(), "due": due.isoformat(),
                                 "amount": amount, "contract": contract, "period": f"{MONTHS[sm - 1]} {sy}"}}
             if late is None:
-                paid_on = date(2026, 11, 16)    # «как было на самом деле»: клиент заплатил 16 ноября
+                paid_on = date(2026, 11, 16)
             else:
                 paid_on = add_bd(due, late)
             purpose = (f"Оплата по счету №{inv_no} от {dmy(issued)} за услуги ИТ-сопровождения за {MONTHS[sm - 1]} {sy} г. "
                        f"по договору №{contract}. в т.ч. НДС ({vat}%) {money(amount * vat / (100 + vat))}")
             op = b.add(paid_on, "in", amount, party, purpose, "revenue", "forward", meta=meta, revenue=True)
             if op is None and next_bd(paid_on) > b.fut_end and issued <= b.fut_end:
-                # счёт выставлен, но оплата за пределами генерации — нужен для фикстур 1С
                 b.notes.append(json.dumps({"open_invoice": {**meta["invoice"], "client": party.name, "inn": party.inn}},
                                           ensure_ascii=False))
-    # разовые проекты небольших клиентов
     small = [P(n) for n in ("ООО «Альфа-Строй»", "ООО «ТехноПарк Дон»", "ООО «Гранд Отель»", "ООО «Кондитер Юг»",
                             "ООО «Фармация Плюс»", "ООО «Лидер Авто»", "ИП Гончаров П.В.", "ООО «Эко Ферма»")]
     small[6] = P("ИП Гончаров П.В.", person=True)
@@ -552,7 +498,6 @@ def gen_b2b(b: Book) -> None:
                                                "period": "разовые работы"}},
                   revenue=True)
 
-    # расходы
     b.payroll(lambda y, m: 1_380_000 * (1.08 if y >= 2025 else 1.0) * (1.07 if y >= 2026 else 1.0),
               advance_day=20, salary_day=5, employees=22, bonus_month=0.35)
     office = P("ООО «Бизнес-центр Кристалл»")
@@ -595,7 +540,6 @@ def gen_b2b(b: Book) -> None:
             a = round(float(b.rng.uniform(6_000, 48_000)), 2)
             b.add(d, "out", a, party, f"Оплата по счету №{int(b.rng.integers(10, 999))}. в т.ч. НДС 20%", "other",
                   expense=True, vat_in=a / 6)
-    # депозит (перевод собственных средств) и ошибочное зачисление
     b.add(date(2025, 7, 14), "out", 1_500_000, b.me, "Перевод собственных средств на депозитный счет. НДС не облагается", "transfers")
     b.add(date(2025, 10, 14), "in", 1_517_800, b.me, "Возврат депозита и выплата процентов по депозитному договору №ДП-77", "transfers")
     b.add(date(2026, 4, 7), "in", 96_000, P("ООО «Альфа-Сервис Плюс»"), "Оплата по счету №1043 за услуги", "other")
@@ -611,9 +555,7 @@ def gen_b2b(b: Book) -> None:
     b.target_end = 2_520_000
 
 
-# --------------------------------------------------------------------------- S03 строительство
 def gen_construction(b: Book) -> None:
-    """Подряды с авансом, оплатой по актам (КС-2/КС-3) и гарантийным удержанием; сезонность."""
     clients = [P("ООО «СЗ Донской квартал»"), P("ООО «ГК Новострой»"), P("ООО «Логистик Парк Юг»"),
                P("МКУ «Управление капитального строительства»"), P("ООО «Агрохолдинг Степь»")]
     mat = [P("ООО «БетонСнаб»"), P("ООО «МеталлТорг Юг»"), P("ООО «СтройБаза Дон»")]
@@ -634,7 +576,6 @@ def gen_construction(b: Book) -> None:
                 client = clients[0]
             projects.append((n, signed, value, int(rng.integers(2, 4)), client))
             n += 1
-    # подряд с муниципальным заказчиком: оплата окончательного акта за декабрь задержана до марта
     projects.append((90, date(2025, 10, 6), 7.2e6, 3, clients[3]))
     for num, signed, value, months_, client in projects:
         contract = f"{num:02d}/{signed.year % 100}-СМР"
@@ -650,7 +591,7 @@ def gen_construction(b: Book) -> None:
         ey, em = add_months(signed.year, signed.month, months_)
         final = add_bd(mday(ey, em, 15), int(rng.integers(20, 45)))
         if num == 90:
-            final = date(2026, 3, 16)   # задержка заказчика → разрыв в феврале 2026
+            final = date(2026, 3, 16)
         sched.append((final, value * retention, "гарантийное удержание"))
         for when, amount, what in sched:
             vat = vat_rate(b.regime, when)
@@ -662,7 +603,6 @@ def gen_construction(b: Book) -> None:
                   meta={"contract": {"number": contract, "signed": signed.isoformat(), "value": value,
                                      "client": client.name, "inn": client.inn, "prepay": prepay,
                                      "stage": what, "planned": when.isoformat()}}, revenue=True)
-            # материалы — до этапа
             if what != "гарантийное удержание":
                 m_party = mat[int(rng.integers(0, len(mat)))]
                 ma = amount * 0.42 * b.noise(0.1)
@@ -674,7 +614,6 @@ def gen_construction(b: Book) -> None:
                 b.add(when + timedelta(days=int(rng.integers(2, 10))), "out", sa, sub,
                       f"Оплата по договору субподряда к договору №{contract}. в т.ч. НДС (20%) {money(sa / 6)}",
                       "suppliers", expense=True, vat_in=sa / 6)
-    # большой предсезонный закуп материалов в феврале 2026 (часть исторического разрыва)
     b.add(date(2026, 2, 10), "out", 1_380_000, mat[1], "Предоплата 50% за металлопрокат по счету №2214 от 06.02.2026. в т.ч. НДС (20%) 230 000,00",
           "suppliers", expense=True, vat_in=230_000)
     sz_staff = {1: 0.7, 2: 0.7, 3: 0.85, 11: 0.85, 12: 0.75}
@@ -698,16 +637,13 @@ def gen_construction(b: Book) -> None:
               lambda y, m: "Оплата электроэнергии (производственная база). в т.ч. НДС 20%", "utilities")
     b.monthly(30, "out", lambda y, m: 2_490, BANK, lambda y, m: f"Комиссия за ведение счета за {MONTHS[m - 1]} {y} г.",
               "bank_fees", shift="backward")
-    # закрытие разрыва: заём учредителя и его возврат
     b.add(date(2026, 2, 26), "in", 1_200_000, P("Учредитель (физ. лицо)", person=True),
           "Поступление займа от учредителя по договору процентного займа №1 от 26.02.2026. НДС не облагается", "loans")
     b.add(date(2026, 8, 24), "out", 1_200_000, P("Учредитель (физ. лицо)", person=True),
           "Возврат займа учредителю по договору №1 от 26.02.2026. НДС не облагается", "loans")
-    # кредитная линия на сезон 2026: транш в марте, погашение после летних актов
     b.add(date(2026, 3, 18), "in", 3_000_000, BANK, "Выдача транша по кредитной линии №КЛ-2026/014 на пополнение оборотных средств", "loans")
     for d_, amt in ((date(2026, 7, 20), 1_528_000), (date(2026, 8, 20), 1_512_000)):
         b.add(d_, "out", amt, BANK, "Погашение транша и процентов по кредитной линии №КЛ-2026/014", "loans")
-    # возврат ошибочного платежа поставщику
     b.add(date(2025, 8, 5), "out", 148_000, mat[0], "Оплата за бетон по счету №5521 от 01.08.2025. в т.ч. НДС (20%) 24 666,67", "suppliers")
     b.add(date(2025, 8, 8), "in", 148_000, mat[0], "Возврат ошибочно перечисленных средств по п/п №611 от 05.08.2025", "refund")
     b.taxes(contributions_k=0.40)
@@ -719,7 +655,6 @@ def gen_construction(b: Book) -> None:
     b.target_end = 2_350_000
 
 
-# --------------------------------------------------------------------------- S04 интернет-магазин
 def gen_ecom(b: Book) -> None:
     sz = {1: 0.72, 2: 1.05, 3: 1.25, 4: 0.92, 5: 0.9, 6: 0.85, 7: 0.76, 8: 0.8, 9: 0.95, 10: 1.08, 11: 1.55, 12: 1.95}
 
@@ -779,7 +714,6 @@ def gen_ecom(b: Book) -> None:
     b.target_end = 1_650_000
 
 
-# --------------------------------------------------------------------------- S05 студия услуг
 def gen_studio(b: Book) -> None:
     sz = {1: 0.82, 2: 1.02, 3: 1.2, 4: 1.0, 5: 1.04, 6: 0.98, 7: 0.86, 8: 0.88, 9: 1.0, 10: 1.02, 11: 1.03, 12: 1.28}
     wk = [0.85, 0.92, 0.95, 1.0, 1.15, 1.3, 0.8]
@@ -822,9 +756,7 @@ def gen_studio(b: Book) -> None:
     b.target_end = 430_000
 
 
-# --------------------------------------------------------------------------- компании
 COMPANIES = [
-    # id, имя, форма, отрасль, режим, лет истории, генератор, дубли, пропуск дней
     ("S01", "ООО «Кофейня Бодрое утро»", "ООО", "Общепит: кофейня (розница)", "usn6", 2.0, gen_coffee, 4, (date(2025, 2, 10), 4)),
     ("S02", "ООО «Вектор Бизнес-Сервис»", "ООО", "B2B-услуги: ИТ-аутсорсинг", "osno", 2.0, gen_b2b, 2, None),
     ("S03", "ООО «СтройМонтаж-Дон»", "ООО", "Строительство и монтаж", "usn15_vat5", 2.0, gen_construction, 3, None),
@@ -881,15 +813,12 @@ def write_statement(path: Path, cid: str, rows: list[dict[str, Any]], fmt: str) 
                             r["counterparty_inn"], r["purpose"], f"{r['balance_eod']:.2f}"])
 
 
-# --------------------------------------------------------------------------- фикстуры источников
 def integrations_for(b: Book, end: date) -> dict[str, Any]:
-    """Тестовые данные источников, согласованные с выпиской и «будущим» компании."""
     out: dict[str, Any] = {}
     window_past = end - timedelta(days=56)
     horizon = end + timedelta(days=45)
     org = {"Наименование": b.name, "ИНН": b.inn}
 
-    # ---- 1С: счета покупателям (выставленные), счета поставщиков, договоры, ведомости
     sales_inv, supp_inv = [], []
     for o in b.ops:
         inv = o.meta.get("invoice")
@@ -912,7 +841,6 @@ def integrations_for(b: Book, end: date) -> dict[str, Any]:
         for s in sales_inv:
             if s["Контрагент"]["Наименование"] == ANCHOR.name and not s["Оплачен"] and s["СрокОплаты"] < end.isoformat():
                 s["Комментарий"] += ". Клиент сообщил о задержке оплаты (письмо от 21.10.2026), новую дату не назвал"
-        # счёт поставщика, которого нет в истории: годовое продление лицензий — 1С знает о нём заранее
         supp_inv.append({"Номер": "СЛ-2026/1187", "Дата": "2026-10-19", "Контрагент": {"Наименование": "ООО «Софт Лицензии»", "ИНН": fake_inn("ООО «Софт Лицензии»")},
                          "Сумма": 365_000.0, "СрокОплаты": "2026-11-02", "Оплачен": False, "СуммаОплаты": 0.0,
                          "Комментарий": "Годовое продление лицензий средств разработки"})
@@ -950,7 +878,6 @@ def integrations_for(b: Book, end: date) -> dict[str, Any]:
         "Документы": {"СчетНаОплатуПокупателю": sales_inv, "СчетОтПоставщика": supp_inv, "Договор": contracts_1c,
                       "ВедомостьНаВыплатуЗарплаты": payroll_docs}}
 
-    # ---- банк: кредиты, зарплатный проект, созданные платёжные поручения
     loans: dict[str, list[dict[str, Any]]] = {}
     for o in b.ops:
         l = o.meta.get("loan")
@@ -972,7 +899,6 @@ def integrations_for(b: Book, end: date) -> dict[str, Any]:
         "ЗарплатныйПроект": {"Договор": "ЗП-" + b.cid, "Ведомости": payroll_project},
         "ПлатежныеПоручения": orders}
 
-    # ---- открытые реестры: статусы контрагентов и госконтракты
     cps: dict[str, Party] = {}
     for o in b.ops:
         if o.direction == "in" and o.kind == "revenue" and len(o.party.inn) == 10 and o.date > end - timedelta(days=365):
@@ -1001,7 +927,6 @@ def integrations_for(b: Book, end: date) -> dict[str, Any]:
                         "Оплата по контракту №2616301234526000112, этап 2. НДС не облагается", "revenue"))
     out["registry.json"] = {"ДатаПроверки": f"{end.isoformat()}T18:00:00", "Контрагенты": checks, "Госконтракты": gov}
 
-    # ---- договоры и счета для загрузки файлом (формат api/ — см. api/README.md)
     contracts = []
     for c in contracts_1c:
         contracts.append({"number": c["Номер"], "counterparty_name": c["Контрагент"]["Наименование"],
@@ -1029,7 +954,7 @@ def integrations_for(b: Book, end: date) -> dict[str, Any]:
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    ap = argparse.ArgumentParser(description="Генератор синтетических банковских выписок малого бизнеса (демо и тесты)")
     ap.add_argument("--out", default=str(Path(__file__).resolve().parent))
     ap.add_argument("--end", default="2026-10-23", help="последний день выписки (рабочий)")
     ap.add_argument("--seed", type=int, default=7)
@@ -1044,7 +969,6 @@ def main() -> None:
             continue
         b, hist, fut = build_company(spec, end, args.seed)
         integ = integrations_for(b, end)
-        # «будущее» пересчитываем после фикстур (в них могли появиться операции)
         _, _, fut = _refresh_future(b, end)
         write_statement(out / "statements" / f"{b.cid}.csv", b.cid, hist, args.format)
         write_statement(out / "future" / f"{b.cid}.csv", b.cid, fut, args.format)
@@ -1073,7 +997,6 @@ def main() -> None:
 
 
 def _refresh_future(b: Book, end: date) -> tuple[Book, list, list[dict[str, Any]]]:
-    """Пересчитать «будущее» по всем операциям (включая добавленные при подготовке фикстур)."""
     ops = sorted(b.ops, key=lambda o: (o.date, 0 if o.direction == "in" else 1))
     bal = b.start_balance
     fut = []

@@ -1,23 +1,3 @@
-"""Поиск регулярных платежей (п.3 задания).
-
-Операции группируются по контрагенту + направлению + категории; для зарплаты
-и налогов — по категории целиком (зарплата часто уходит десятку сотрудников
-в один день, это один «платёж»). Внутри группы суммы сворачиваются по датам.
-
-Для каждой группы ищутся «якоря»:
-
-* **monthly** — день месяца ``a``: в ≥70% месяцев есть платёж в пределах
-  ±4 дней от ``a`` с учётом переноса с выходных/праздников. До двух якорей
-  на группу — так аванс и зарплата (10-е и 25-е) становятся двумя паттернами;
-* **weekly / biweekly** — день недели, платёж в ≥70% недель;
-* **quarterly** — шаг ~91 день.
-
-Плотные потоки (эквайринг каждый день) не считаются регулярными платежами —
-их моделирует стохастическая часть прогноза. Дивиденды, займы учредителя и их возврат —
-решения владельца, а не обязательства: регулярными платежами они не бывают.
-
-Уверенность = число повторов × точность дат × стабильность суммы × покрытие периодов.
-"""
 from __future__ import annotations
 
 import calendar
@@ -38,12 +18,9 @@ from .schema import CATEGORIES
 
 log = get_logger(__name__)
 
-#: Категории, которые группируются целиком (без разбивки по контрагентам).
 AGGREGATE_CATEGORIES = ("payroll", "taxes")
-#: Категории, где регулярность не ищем (переводы самому себе непредсказуемы по смыслу).
 SKIP_CATEGORIES = ("transfers",)
 MIN_CONFIDENCE = 0.3
-#: Срок уплаты ЕНП — 28-е число, с выходного переносится на следующий рабочий день (НК РФ, ст. 6.1).
 TAX_ANCHOR = 28
 
 _DEFAULT_SHIFT = {"payroll": "backward", "taxes": "forward"}
@@ -64,16 +41,14 @@ def _from_month_index(mi: int, anchor: int) -> date:
 
 @dataclass
 class RecurringPattern:
-    """Найденный регулярный платёж с расписанием."""
-
     key: str
     name: str
     direction: str
     category: str
-    kind: str                      # weekly | biweekly | monthly | quarterly
+    kind: str
     period_days: int
-    anchor: int                    # день месяца (monthly/quarterly) или день недели (weekly)
-    shift_rule: str                # backward | forward
+    anchor: int
+    shift_rule: str
     amounts: list[float]
     dates: list[date]
     last_nominal: date
@@ -81,17 +56,12 @@ class RecurringPattern:
     counterparty_inn: str = ""
     group_key: str = ""
     confidence: float = 0.0
-    late_share: float = 0.0        # доля платежей, пришедших позже ожидаемого > 3 дн.
+    late_share: float = 0.0
     timing_mad: float = 0.0
     tx_ids: list[str] = field(default_factory=list)
 
-    # ------------------------------------------------------------ amounts
     @property
     def amount_forecast(self) -> float:
-        """Сумма для прогноза — медиана последних 3 платежей (учитывает рост зарплаты и т.п.).
-
-        Для налогов — медиана за год: квартальные всплески ЕНП моделирует :mod:`taxes`.
-        """
         if not self.amounts:
             return 0.0
         k = 12 if self.category == "taxes" else 3
@@ -108,12 +78,10 @@ class RecurringPattern:
             return 0.3
         return float(min(1.0, a.std(ddof=1) / a.mean()))
 
-    # ------------------------------------------------------------ schedule
     def _expected_after(self, nominal: date) -> date:
-        return shift_to_business_day(nominal, self.shift_rule)  # type: ignore[arg-type]
+        return shift_to_business_day(nominal, self.shift_rule)
 
     def schedule(self, until: date, max_items: int = 400) -> list[tuple[date, date]]:
-        """Ожидаемые (номинальная, фактическая) даты после последнего платежа и до ``until`` включительно."""
         out: list[tuple[date, date]] = []
         if self.kind in ("monthly", "quarterly"):
             step = 1 if self.kind == "monthly" else 3
@@ -136,7 +104,6 @@ class RecurringPattern:
         return out
 
     def next_date(self, as_of: date) -> date | None:
-        """Ближайшая ожидаемая дата (если платёж уже «просрочен» — следующий день после as_of)."""
         sch = self.schedule(as_of + timedelta(days=self.period_days * 2 + 10))
         if not sch:
             return None
@@ -144,7 +111,6 @@ class RecurringPattern:
         return max(exp, as_of + timedelta(days=1))
 
     def is_active(self, as_of: date) -> bool:
-        """Паттерн активен, если пропущено не больше одного периода (+допуск)."""
         sch = self.schedule(as_of)
         if not sch:
             return True
@@ -153,7 +119,6 @@ class RecurringPattern:
         return len(missed) == 0
 
     def register_payment(self, d: date, amount: float, tx_id: str = "") -> None:
-        """Учесть новый фактический платёж (для инкрементального обновления)."""
         sch = self.schedule(d + timedelta(days=10))
         if sch:
             nom = min(sch, key=lambda ne: abs((ne[1] - d).days))[0]
@@ -164,7 +129,6 @@ class RecurringPattern:
             self.tx_ids.append(tx_id)
 
     def to_contract(self, as_of: date) -> dict[str, Any]:
-        """Словарь в формате контракта: {name, direction, amount_avg, period_days, next_date, confidence}."""
         nd = self.next_date(as_of)
         return {
             "name": self.name,
@@ -176,17 +140,14 @@ class RecurringPattern:
         }
 
 
-# --------------------------------------------------------------------------- detection helpers
 @lru_cache(maxsize=200000)
 def _offset(d: date, nominal: date) -> int:
-    """Минимальное расстояние от фактической даты до номинальной с учётом переноса в обе стороны."""
     cands = [nominal, shift_to_business_day(nominal, "forward"), shift_to_business_day(nominal, "backward")]
     best = min(cands, key=lambda c: abs((d - c).days))
     return (d - best).days
 
 
 def _assign_monthly(dates: list[date], anchor: int, tol: int = 4) -> dict[int, int]:
-    """Сопоставить датам месяцы при якоре ``anchor``. Возвращает {month_index: index даты}."""
     best: dict[int, tuple[int, int]] = {}
     for i, d in enumerate(dates):
         for mi in (_month_index(d) - 1, _month_index(d), _month_index(d) + 1):
@@ -194,7 +155,6 @@ def _assign_monthly(dates: list[date], anchor: int, tol: int = 4) -> dict[int, i
             off = abs(_offset(d, nom))
             if off <= tol and (mi not in best or off < best[mi][1]):
                 best[mi] = (i, off)
-    # одна дата — один месяц
     used: dict[int, tuple[int, int]] = {}
     for mi, (i, off) in sorted(best.items(), key=lambda kv: kv[1][1]):
         if i in {v[0] for v in used.values()}:
@@ -228,7 +188,6 @@ def _confidence(n: int, offsets: list[int], amounts: list[float], coverage: floa
 
 def _detect_monthly(dates: list[date], amounts: list[float], as_of: date, category: str,
                     max_anchors: int = 2) -> list[dict[str, Any]]:
-    """Найти до ``max_anchors`` месячных якорей в ряду дат."""
     found: list[dict[str, Any]] = []
     remaining = list(range(len(dates)))
     for _ in range(max_anchors):
@@ -242,11 +201,9 @@ def _detect_monthly(dates: list[date], amounts: list[float], as_of: date, catego
                 continue
             mis = sorted(assign)
             span = _month_index(as_of) - mis[0] + 1
-            # последний месяц может быть ещё «не наступил»
             nom_last = _from_month_index(_month_index(as_of), a)
             if shift_to_business_day(nom_last, "forward") > as_of and _month_index(as_of) not in assign:
                 span -= 1
-            # больше 100% не бывает: иначе платёж 28-го «выигрывает» как опоздавший платёж 1-го числа
             coverage = min(1.0, len(assign) / max(span, 1))
             offs = [abs(_offset(sub[assign[m]], _from_month_index(m, a))) for m in mis]
             score = len(assign) * coverage - 0.15 * float(np.mean(offs))
@@ -257,8 +214,6 @@ def _detect_monthly(dates: list[date], amounts: list[float], as_of: date, catego
                 tax28 = cand
         if best is None or best[3] < 0.7:
             break
-        # налоги: если 28-е объясняет почти все платежи — берём законный срок, а не похожий день
-        # (часть ЕНП платят на 5–10 дней раньше срока — такие месяцы закрывает поиск ранних платежей ниже)
         if category == "taxes" and not found and tax28 is not None and tax28[3] >= 0.6 \
                 and len(tax28[2]) >= 0.7 * len(best[2]):
             best = tax28
@@ -274,7 +229,7 @@ def _detect_weekly(dates: list[date], as_of: date, period: int) -> dict[str, Any
     if len(dates) < 4:
         return None
     span_weeks = max(1, ((as_of - dates[0]).days + 1) / period)
-    if len(dates) / span_weeks > 1.6:  # слишком плотно — это поток, а не платёж
+    if len(dates) / span_weeks > 1.6:
         return None
     iv = np.diff([d.toordinal() for d in dates])
     if not len(iv):
@@ -323,23 +278,15 @@ def _pattern_name(category: str, counterparty: str, kind: str, anchor: int, n_an
     return f"{label}{cp} ({when})"
 
 
-# --------------------------------------------------------------------------- main API
 def find_patterns(df: pd.DataFrame, as_of: date | None = None, *, min_confidence: float = MIN_CONFIDENCE,
                   active_only: bool = True) -> list[RecurringPattern]:
-    """Найти регулярные платежи. ``df`` — категоризированная выписка.
-
-    Args:
-        as_of: дата «сегодня» (по умолчанию — последняя дата выписки).
-        min_confidence: минимальная уверенность паттерна.
-        active_only: отбрасывать прекратившиеся паттерны.
-    """
     if df is None or not len(df) or "category" not in df.columns:
         return []
     d = df.copy()
     d.attrs = {}
     d["date"] = pd.to_datetime(d["date"]).dt.date
     as_of = as_of or max(d["date"])
-    d = d[~d["category"].isin(SKIP_CATEGORIES) & ~owner_flow_mask(d)]  # дивиденды и займы учредителя — не обязательства
+    d = d[~d["category"].isin(SKIP_CATEGORIES) & ~owner_flow_mask(d)]
     d["cp"] = [_cp_key(i, n) for i, n in zip(d["counterparty_inn"], d["counterparty_name"])]
     d["gkey"] = np.where(d["category"].isin(AGGREGATE_CATEGORIES), "cat:" + d["category"], d["cp"])
     d = d[d["gkey"] != ""]
@@ -366,7 +313,7 @@ def find_patterns(df: pd.DataFrame, as_of: date | None = None, *, min_confidence
                 if w:
                     candidates.append((kind, period, w, list(range(len(dates)))))
                     break
-        if not candidates and density <= 0.6 and category != "taxes":  # квартальные налоги — в taxes.py
+        if not candidates and density <= 0.6 and category != "taxes":
             q = _detect_quarterly(dates, as_of)
             if q:
                 candidates.append(("quarterly", 91, q, list(range(len(dates)))))
@@ -397,10 +344,8 @@ def find_patterns(df: pd.DataFrame, as_of: date | None = None, *, min_confidence
                 timing_mad=float(np.mean(np.abs(offs))) if offs else 0.0,
                 tx_ids=[t for i in idx for t in per_day["ids"].iloc[i]],
             )
-            # Платёж периода мог прийти заметно раньше срока (ЕНП 18-го вместо 28-го), и так —
-            # несколько месяцев подряд: неучтённый платёж похожей суммы закрывает очередной период.
             window = 20 if kind in ("monthly", "quarterly") else 3
-            lo, hi = (0.3, 3.0) if category == "taxes" else (0.5, 1.6)  # ЕНП сильно меняется от квартала к кварталу
+            lo, hi = (0.3, 3.0) if category == "taxes" else (0.5, 1.6)
             for _ in range(24):
                 sch = pat.schedule(as_of + timedelta(days=period))
                 if not sch:
@@ -425,7 +370,6 @@ def find_patterns(df: pd.DataFrame, as_of: date | None = None, *, min_confidence
 
 
 def inactive_patterns(df: pd.DataFrame, as_of: date | None = None) -> list[RecurringPattern]:
-    """Паттерны, которые раньше были регулярными, но прекратились (например, ушёл клиент)."""
     if df is None or not len(df) or "category" not in df.columns:
         return []
     as_of = as_of or pd.to_datetime(df["date"]).max().date()
@@ -433,12 +377,6 @@ def inactive_patterns(df: pd.DataFrame, as_of: date | None = None) -> list[Recur
 
 
 def detect_recurring(df: pd.DataFrame, as_of: date | None = None) -> list[dict[str, Any]]:
-    """Публичный API контракта: список регулярных платежей.
-
-    Returns:
-        ``[{name, direction, amount_avg, period_days, next_date, confidence}]`` —
-        отсортировано по месячному объёму.
-    """
     if df is not None and len(df) and "category" not in df.columns:
         from .categorize import categorize
 

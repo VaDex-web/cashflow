@@ -1,8 +1,3 @@
-"""Лимит частоты запросов с одного IP (скользящее окно 60 с, в памяти процесса).
-
-Два счётчика: все запросы к /api и «тяжёлые» — вход, демо-вход, загрузка файлов, прогноз без входа.
-За обратным прокси (Caddy) IP берётся из X-Forwarded-For, только если TRUST_PROXY=true.
-"""
 from __future__ import annotations
 
 import threading
@@ -26,7 +21,7 @@ def _heavy(request: Request) -> bool:
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
-    def __init__(self, app) -> None:  # noqa: ANN001
+    def __init__(self, app) -> None:
         super().__init__(app)
         self._hits: dict[tuple[str, str], deque[float]] = defaultdict(deque)
         self._lock = threading.Lock()
@@ -47,7 +42,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         q.append(now)
         return True
 
-    async def dispatch(self, request: Request, call_next):  # noqa: ANN001
+    async def dispatch(self, request: Request, call_next):
         s = get_settings()
         if not request.url.path.startswith("/api/") or request.url.path == "/api/health":
             return await call_next(request)
@@ -56,7 +51,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             ok = (s.rate_limit_per_min <= 0 or self._allow((ip, "all"), s.rate_limit_per_min, now)) and \
                  (not _heavy(request) or s.rate_limit_heavy_per_min <= 0 or
                   self._allow((ip, "heavy"), s.rate_limit_heavy_per_min, now))
-            if len(self._hits) > 50_000:          # защита памяти: старые ключи выбрасываем
+            if len(self._hits) > 50_000:
                 self._hits.clear()
         if not ok:
             return JSONResponse(status_code=429, headers={"Retry-After": "60"},

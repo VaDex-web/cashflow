@@ -1,8 +1,3 @@
-"""Типы JSON-сущностей из контракта (docs/contract.md) и общие константы.
-
-Все публичные функции ядра возвращают обычные dict/list, совместимые с JSON.
-TypedDict-ы ниже — документация формы этих словарей и подсказки для mypy.
-"""
 from __future__ import annotations
 
 from typing import Any, Literal, TypedDict
@@ -15,7 +10,6 @@ EVENT_SOURCES = ("bank", "1c", "tax_calendar", "manual", "open_registry")
 EVENT_STATUSES = ("expected", "paid", "overdue")
 SCENARIO_TYPES = ("client_delay", "revenue_drop", "unplanned_expense", "fixed_cost_growth")
 
-#: Код категории -> человекочитаемое название (для UI).
 CATEGORIES: dict[str, str] = {
     "revenue": "Выручка от клиентов",
     "payroll": "Зарплата",
@@ -29,7 +23,6 @@ CATEGORIES: dict[str, str] = {
     "other": "Прочее",
 }
 
-#: Категории, которые по смыслу бывают только в одном направлении.
 CATEGORY_DIRECTIONS: dict[str, tuple[str, ...]] = {
     "revenue": ("in",),
     "payroll": ("out",),
@@ -43,32 +36,19 @@ CATEGORY_DIRECTIONS: dict[str, tuple[str, ...]] = {
     "other": ("in", "out"),
 }
 
-#: Постоянные расходы для сценария fixed_cost_growth.
 FIXED_COST_CATEGORIES = ("payroll", "rent", "utilities", "bank_fees")
 
-#: Порог вероятности, начиная с которого разрыв считается «вероятным».
 GAP_PROBABILITY_LIKELY = 0.5
-#: Минимальная вероятность, при которой риск попадает в список risks.
 GAP_PROBABILITY_REPORT = 0.05
-#: Квантили интервала: balance_low = P10, balance_high = P90 (80% интервал).
 INTERVAL_LOW_Q = 0.10
 INTERVAL_HIGH_Q = 0.90
-#: Калибровочный множитель ширины интервалов Monte Carlo: покрытие P10–P90 фактического остатка 80% на
-#: dev-компаниях после сжатия к текущему остатку (core/reports/shrink.json; до сжатия был 1.45).
 INTERVAL_SCALE = 1.25
-#: Насколько верить изменению остатка, которое ждёт модель (подобрано на dev-компаниях по фактическому остатку,
-#: core/reports/shrink.json). Изменение модели d(h) делится на дрейф (линия к значению на 30-й день) и форму месяца
-#: (провалы в дни зарплаты, налогов, оплат): p50 = остаток + SHAPE·(d − дрейф) + DRIFT·дрейф. На «грязной»
-#: истории модель часто ошибается в общем направлении, а «остаток не изменится» — сильный бейзлайн.
 SHRINK_SHAPE = 0.5
 SHRINK_DRIFT = 0.05
-#: история короче 90 дней (упрощённый режим): изменению модели не верим — p50 = текущий остаток
 SHRINK_SHORT = 0.0
 
 
 class Event(TypedDict, total=False):
-    """Ожидаемое будущее событие (договор, счёт, налог, кредит, зарплата, ручной ввод)."""
-
     id: str
     type: str
     direction: Direction
@@ -85,7 +65,7 @@ class DailyPoint(TypedDict, total=False):
     balance_p50: float
     balance_low: float
     balance_high: float
-    events: list[str]          # необязательное: id событий на эту дату
+    events: list[str]
 
 
 class Risk(TypedDict):
@@ -110,9 +90,9 @@ class ForecastResult(TypedDict):
     company_id: str
     generated_at: str
     horizon_days: int
-    as_of: str                 # необязательное: дата последней операции
-    current_balance: float     # необязательное: фактический остаток на as_of
-    comfort_balance: float     # необязательное: подушка безопасности, от которой считается риск «мало денег»
+    as_of: str
+    current_balance: float
+    comfort_balance: float
     daily: list[DailyPoint]
     risks: list[Risk]
     recurring: list[Recurring]

@@ -1,4 +1,3 @@
-"""Мини-раннер тестов на случай, если pytest не установлен: ``python core/tests/run_tests.py``."""
 import importlib
 import sys
 import time
@@ -22,7 +21,7 @@ def main() -> int:
                 getattr(mod, name)()
                 passed += 1
                 print(f"PASS {f.stem}.{name} ({time.time() - t:.1f}s)")
-            except Exception:  # noqa: BLE001
+            except Exception:
                 failed.append(f"{f.stem}.{name}")
                 print(f"FAIL {f.stem}.{name}\n{traceback.format_exc()}")
     print(f"\n{passed} passed, {len(failed)} failed")

@@ -1,4 +1,3 @@
-// Клиент API: по умолчанию ходим в /api (FastAPI). VITE_USE_MOCK=true — только для разработки без бэкенда (docs/mock/*.json).
 import type {
   CashEvent, CategoriesResponse, ForecastResult, IntegrationName, MetricsReport, NewCashEvent,
   PlanFact, Recurring, Risk, Scenario, ScenarioResult, SyncResponse, Transaction,
@@ -14,7 +13,7 @@ export const auth = {
     try { return localStorage.getItem(TOKEN_KEY) } catch { return null }
   },
   set(token: string | null) {
-    try { token ? localStorage.setItem(TOKEN_KEY, token) : localStorage.removeItem(TOKEN_KEY) } catch { /* приватный режим */ }
+    try { token ? localStorage.setItem(TOKEN_KEY, token) : localStorage.removeItem(TOKEN_KEY) } catch {  }
   },
 }
 
@@ -51,7 +50,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     try {
       const body = await res.json()
       detail = typeof body.detail === 'string' ? body.detail : Array.isArray(body.detail) ? body.detail.map((d: { msg?: string }) => d.msg).join('; ') : ''
-    } catch { /* тело не JSON */ }
+    } catch {  }
     if (res.status === 401) auth.set(null)
     throw new ApiError(detail || STATUS_TEXT[res.status] || `Ошибка ${res.status}`, res.status)
   }
@@ -60,7 +59,6 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 
 const json = (body: unknown): RequestInit => ({ method: 'POST', body: JSON.stringify(body) })
 
-// metrics.json из core/reports подхватывается при сборке, если файл уже есть; иначе — мок
 const coreMetrics = import.meta.glob('../../../core/reports/metrics.json', { eager: true, import: 'default' })
 
 const realApi = {
@@ -84,10 +82,9 @@ const realApi = {
   planFact: (id: string) => request<PlanFact>(`/companies/${id}/plan-fact`),
   sync: (id: string, name: IntegrationName) => request<SyncResponse>(`/companies/${id}/integrations/${name}/sync`, { method: 'POST' }),
   addTransactions: (id: string, rows: Partial<Transaction>[]) => request<ForecastResult>(`/companies/${id}/transactions`, json(rows)),
-  // Сначала GET /api/metrics (отдаёт core/reports/metrics.json), потом файл из сборки, потом мок
   metrics: async (): Promise<MetricsReport> => {
     if (!USE_MOCK) {
-      try { return await request<MetricsReport>('/metrics') } catch { /* нет эндпоинта — берём файл */ }
+      try { return await request<MetricsReport>('/metrics') } catch {  }
     }
     const v = Object.values(coreMetrics)[0] as MetricsReport | undefined
     return v ?? mockApi.metrics()

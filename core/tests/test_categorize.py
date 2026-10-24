@@ -1,4 +1,3 @@
-"""Категоризация: правила, память контрагента, ML, качество."""
 from pathlib import Path
 
 import numpy as np

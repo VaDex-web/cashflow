@@ -43,7 +43,6 @@ p { margin: 0; }
 a { color: var(--green-600); }
 button, input, select, textarea { font: inherit; color: inherit; }
 
-/* ---------- layout ---------- */
 .app { display: grid; grid-template-columns: 240px 1fr; min-height: 100vh; }
 .sidebar {
   background: var(--green-800); color: #e7f1ea; padding: 20px 14px; position: sticky; top: 0; height: 100vh;
@@ -86,7 +85,6 @@ button, input, select, textarea { font: inherit; color: inherit; }
 }
 @media (min-width: 901px) { .mobile-nav { display: none; } }
 
-/* ---------- primitives ---------- */
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); padding: 20px; }
 .card-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; }
 .muted { color: var(--text-2); }
@@ -147,7 +145,6 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .skeleton { background: linear-gradient(90deg, #e9eee6 0%, #f4f7f2 50%, #e9eee6 100%); background-size: 200% 100%; animation: sh 1.2s infinite; border-radius: 10px; }
 @keyframes sh { to { background-position: -200% 0; } }
 
-/* ---------- hint ---------- */
 .hint { position: relative; display: inline-flex; }
 .hint-btn {
   width: 18px; height: 18px; border-radius: 50%; border: 1px solid var(--border); background: var(--surface); color: var(--text-3);
@@ -161,7 +158,6 @@ button, input, select, textarea { font: inherit; color: inherit; }
 
 .clamp-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; max-width: 520px; }
 
-/* элементы сетки и карточки не распирают страницу шире экрана (таблицы прокручиваются внутри .table-wrap) */
 .grid > *, .grid-2 > *, .grid-3 > *, .grid-main > *, .card { min-width: 0; }
 .table-wrap { max-width: 100%; }
 @media (max-width: 700px) {

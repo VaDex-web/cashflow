@@ -1,4 +1,3 @@
-"""Сводка по категориям для GET /categories и простая разметка на случай заглушки ядра."""
 from __future__ import annotations
 
 import re
@@ -7,7 +6,6 @@ from typing import Any
 import pandas as pd
 
 _RULES: list[tuple[str, str, str]] = [
-    # (код, направление: in/out/*, регулярка по назначению + контрагенту)
     ("transfers", "*", r"собственн|между своими|депозит"),
     ("taxes", "out", r"енп|единый налог|налог|фнс|енс|страхов\w* взнос"),
     ("payroll", "out", r"заработн|зарплат|аванс по зар|\(аванс\)|премии|самозанят|нпд"),
@@ -26,7 +24,6 @@ LABELS = {
 
 
 def categorize_simple(df: pd.DataFrame) -> pd.DataFrame:
-    """Разметка по ключевым словам (только для режима заглушки ядра)."""
     out = df.copy()
     cats, conf = [], []
     for purpose, name, direction in zip(out.get("purpose", ""), out.get("counterparty_name", ""), out["direction"]):
@@ -41,7 +38,6 @@ def categorize_simple(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def summarize(df: pd.DataFrame, limit: int | None = None) -> dict[str, Any]:
-    """Ответ /categories: доли внутри направления + операции (новые сверху)."""
     if not len(df):
         return {"summary": [], "transactions": []}
     d = df.copy()

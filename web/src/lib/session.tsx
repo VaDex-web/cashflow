@@ -24,11 +24,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const login = useCallback((t: string) => { auth.set(t); setToken(t) }, [])
   const logout = useCallback(() => { auth.set(null); setToken(null) }, [])
   const setCompany = useCallback((id: string | null) => {
-    try { id ? localStorage.setItem(COMPANY_KEY, id) : localStorage.removeItem(COMPANY_KEY) } catch { /* ignore */ }
+    try { id ? localStorage.setItem(COMPANY_KEY, id) : localStorage.removeItem(COMPANY_KEY) } catch {  }
     setCompanyId(id)
   }, [])
 
-  // Если API ответил 401 — токен сброшен в client.ts; синхронизируем состояние
   useEffect(() => {
     const t = setInterval(() => { if (token && !auth.token) setToken(null) }, 2000)
     return () => clearInterval(t)
