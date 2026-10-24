@@ -27,10 +27,10 @@ export function Quality() {
 
       {best && (
         <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
-          <Big label="Средняя ошибка остатка" value={blank(best.mae, fmtRub)} hint="MAE: на сколько рублей в среднем прогноз остатка отличается от факта на горизонте прогноза." />
-          <Big label="Относительная ошибка" value={blank(best.mape, fmtPct)} hint="MAPE: средняя ошибка в процентах от фактического остатка." />
+          <Big label="Средняя ошибка остатка" value={blank(best.mae, fmtRub)} hint="MAE: на сколько рублей в среднем прогноз отличается от фактического остатка на счёте на горизонте прогноза." />
+          <Big label="Ошибка в долях оборота" value={blank(best.mape, fmtPct)} hint="MAE, % оборота: средняя ошибка прогноза остатка в процентах от месячного оборота (списаний за месяц) — так ошибки малых и крупных компаний сравнимы." />
           <Big label="Факт внутри диапазона" value={blank(best.coverage_80, fmtPct)} hint="Доля дней, когда фактический остаток попал в «возможный диапазон». Цель — около 80%." />
-          <Big label="Находим разрывы" value={blank(best.gap_recall, fmtPct)} hint="Recall: доля реальных кассовых разрывов, о которых модель предупредила заранее." />
+          <Big label="Находим разрывы" value={blank(best.gap_recall, fmtPct)} hint="Recall: доля разрывов (деньги кончились бы без пополнения владельцем), о которых модель предупредила заранее." />
           <Big label="Точность предупреждений" value={blank(best.gap_precision, fmtPct)} hint="Precision: доля предупреждений, после которых разрыв действительно случился." />
         </div>
       )}
@@ -44,7 +44,7 @@ export function Quality() {
         </div>
         <div className="table-wrap">
           <table className="table num">
-            <thead><tr><th>Модель</th><th className="r">MAE, ₽</th><th className="r">MAPE</th><th className="r">В диапазоне</th><th className="r">Находит разрывы</th><th className="r">Точность</th></tr></thead>
+            <thead><tr><th>Модель</th><th className="r">MAE, ₽</th><th className="r">MAE, % оборота</th><th className="r">В диапазоне</th><th className="r">Находит разрывы</th><th className="r">Точность</th></tr></thead>
             <tbody>
               {r.models.map((x) => (
                 <tr key={x.name} style={x.is_selected ? { background: 'var(--lime-100)', fontWeight: 650 } : undefined}>

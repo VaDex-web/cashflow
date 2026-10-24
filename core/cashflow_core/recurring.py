@@ -13,7 +13,8 @@
 * **quarterly** — шаг ~91 день.
 
 Плотные потоки (эквайринг каждый день) не считаются регулярными платежами —
-их моделирует стохастическая часть прогноза.
+их моделирует стохастическая часть прогноза. Дивиденды, займы учредителя и их возврат —
+решения владельца, а не обязательства: регулярными платежами они не бывают.
 
 Уверенность = число повторов × точность дат × стабильность суммы × покрытие периодов.
 """
@@ -31,6 +32,7 @@ import numpy as np
 import pandas as pd
 
 from .calendar_ru import is_business_day, shift_to_business_day
+from .categorize import owner_flow_mask
 from .log import get_logger
 from .schema import CATEGORIES
 
@@ -337,7 +339,7 @@ def find_patterns(df: pd.DataFrame, as_of: date | None = None, *, min_confidence
     d.attrs = {}
     d["date"] = pd.to_datetime(d["date"]).dt.date
     as_of = as_of or max(d["date"])
-    d = d[~d["category"].isin(SKIP_CATEGORIES)]
+    d = d[~d["category"].isin(SKIP_CATEGORIES) & ~owner_flow_mask(d)]  # дивиденды и займы учредителя — не обязательства
     d["cp"] = [_cp_key(i, n) for i, n in zip(d["counterparty_inn"], d["counterparty_name"])]
     d["gkey"] = np.where(d["category"].isin(AGGREGATE_CATEGORIES), "cat:" + d["category"], d["cp"])
     d = d[d["gkey"] != ""]

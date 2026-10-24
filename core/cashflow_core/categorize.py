@@ -35,6 +35,19 @@ _NDS_TAIL = re.compile(
     r"|ндс\s+не\s+облагается\.?|без\s+налога\s*\(?ндс\)?\.?|без\s+ндс\.?|ндс\s+не\s+предусмотрен\w*\.?|ндс\s+нет\.?)"
 )
 
+#: Решения владельца, а не обязательства бизнеса: дивиденды, займы учредителя и их возврат, взносы в капитал.
+#: Прогноз их не ожидает (владелец решает сам, когда и сколько), и отсрочку по ним не советует.
+OWNER_FLOW_RE = re.compile(r"дивиденд|учредител|участник\w*\s+обществ|уставн\w*\s+капитал", re.IGNORECASE)
+
+
+def owner_flow_mask(df: pd.DataFrame) -> pd.Series:
+    """True для операций между бизнесом и его владельцем (по назначению или названию контрагента)."""
+    if df is None or not len(df):
+        return pd.Series(False, index=getattr(df, "index", None), dtype=bool)
+    text = df["purpose"].fillna("").astype(str) + " " + df["counterparty_name"].fillna("").astype(str)
+    return text.str.contains(OWNER_FLOW_RE)
+
+
 # (категория, допустимые направления, regex, уверенность). Порядок = приоритет.
 _RULES: list[tuple[str, tuple[str, ...], str, float]] = [
     ("bank_fees", ("out",), r"комисси\w*\s+(за|банка|по)|плата\s+за\s+(аренду\s+)?pos|pos-терминал|ведени\w*\s+счет"

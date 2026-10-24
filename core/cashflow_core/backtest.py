@@ -6,6 +6,7 @@
 
 Подходы:
 
+* ``flat`` — «остаток не изменится» (самый простой бейзлайн; интервал — по прошлым изменениям остатка за h дней);
 * ``naive`` — повтор последних 28 дней поступлений и списаний;
 * ``ets`` — сезонный профиль (уровень × тип дня × «как год назад») по всем потокам;
 * ``hybrid`` — регулярные платежи + налоговая модель + остаточные потоки (ETS/бустинг,
@@ -13,6 +14,9 @@
 
 Интервалы у всех подходов строятся одинаково — по эмпирическим ошибкам прошлых
 прогнозов, — чтобы сравнение было честным.
+
+Ошибка остатка считается двумя способами: по фактическому ``balance_eod`` (так прогноз
+сравнивают с реальностью) и по остатку **без «спасательных» поступлений** (как в продукте).
 
 Разрыв для метрик precision/recall считается по остатку **без «спасательных»
 поступлений** (пополнения собственными средствами, займы учредителя, транши):
@@ -38,7 +42,7 @@ from .schema import GAP_PROBABILITY_LIKELY, INTERVAL_HIGH_Q, INTERVAL_LOW_Q
 
 log = get_logger(__name__)
 
-DEFAULT_MODELS = ("naive", "ets", "hybrid")
+DEFAULT_MODELS = ("flat", "naive", "ets", "hybrid")
 
 
 @dataclass
@@ -66,6 +70,20 @@ def _baseline(daily_hist: pd.DataFrame, name: str, H: int, n_sims: int, seed: in
         sd = float((y_in - y_out).std() or 0.0)
         net = p_in - p_out + 1.5 * sd * rng.standard_normal((n_sims, H))
     return OriginForecast(b0 + np.cumsum(net, axis=1), p_in, p_out)
+
+
+def _flat(daily_hist: pd.DataFrame, H: int, n_sims: int, seed: int, b0: float) -> OriginForecast:
+    """«Остаток не изменится»: медиана — текущий остаток, разброс — прошлые изменения остатка за 1…H дней."""
+    bal = daily_hist["balance_reported"].where(daily_hist["balance_reported"].notna(), daily_hist["balance"])
+    b = bal.ffill().to_numpy(dtype=float)
+    n = len(b) - H
+    zeros = np.zeros(H)
+    if n < 5:
+        return OriginForecast(np.full((n_sims, H), b0), zeros, zeros)
+    paths = np.array([b[s + 1:s + H + 1] - b[s] for s in range(n)])
+    paths = paths - np.median(paths, axis=0)  # центр — «не изменится»
+    pick = np.random.default_rng([seed, 1]).integers(0, n, n_sims)
+    return OriginForecast(b0 + paths[pick], zeros, zeros)
 
 
 def _hybrid(tx: pd.DataFrame, origin: date, H: int, n_sims: int, seed: int, model: str,
@@ -178,7 +196,9 @@ def backtest(df: Any, *, horizon: int = 30, n_origins: int = 8, step: int = 21, 
             t0 = time.time()
             try:
                 # interval_scale: 1.0 — «сырая» модель (для калибровки на dev), иначе — продуктовая настройка
-                if m == "hybrid":
+                if m == "flat":
+                    fc = _flat(daily.loc[:pd.Timestamp(o)], H, n_sims, seed, act["b0"])
+                elif m == "hybrid":
                     fc = _hybrid(tx, o, H, n_sims, seed, hybrid_model, interval_scale)
                 elif m.startswith("hybrid_"):
                     fc = _hybrid(tx, o, H, n_sims, seed, m.split("_", 1)[1], interval_scale)
@@ -196,6 +216,9 @@ def backtest(df: Any, *, horizon: int = 30, n_origins: int = 8, step: int = 21, 
                 "origin": o.isoformat(), "b0": act["b0"], "turnover30": turnover,
                 "err": (q[1] - target).tolist(),
                 "err_vs_actual": (q[1] - act["balance"]).tolist(),
+                "p50": q[1].tolist(), "bal_act": act["balance"].tolist(),
+                "mode": getattr(fc.state, "mode", None), "hist_days": int(len(daily.loc[:pd.Timestamp(o)])),
+                "covered_actual": ((act["balance"] >= q[0]) & (act["balance"] <= q[2])).tolist(),
                 "abs_actual": np.abs(target).tolist(),
                 "covered": ((target >= q[0]) & (target <= q[2])).tolist(),
                 "width": (q[2] - q[0]).tolist(),
@@ -280,8 +303,21 @@ def aggregate(results: list[dict[str, Any]]) -> dict[str, Any]:
             aw = np.abs(a[:, :wk].reshape(len(a), -1, 7).sum(axis=2)).sum()
             return float(ew / aw) if aw else float("nan")
 
+        has_act = all("bal_act" in x for x in recs)
+        ea = np.array([x["err_vs_actual"] for x in recs])
+        aa = np.abs(np.array([x["bal_act"] for x in recs])) if has_act else None
         out[m] = {
             "n_forecasts": len(recs),
+            # по фактическому остатку (balance_eod) — так прогноз сравнивают с реальностью
+            "actual_balance_mae_rub": round(float(np.abs(ea).mean()), 0),
+            "actual_balance_wape": round(float(np.abs(ea).sum() / max(aa.sum(), 1.0)), 4) if has_act else None,
+            "actual_balance_mae_pct_turnover": round(float(np.median((np.abs(ea) / turn).mean(axis=1))), 4),
+            "actual_balance_mae_pct_turnover_h7_h14_h30": [round(float(np.median(np.abs(ea[:, h]) / turn[:, 0])), 4)
+                                                           for h in (6, 13, H - 1)],
+            "actual_coverage_p10_p90": round(float(np.mean([x["covered_actual"] for x in recs])), 4) if has_act else None,
+            "actual_balance_mae_pct_turnover_by_h": [round(float(np.median(np.abs(ea[:, h]) / turn[:, 0])), 4)
+                                                     for h in range(H)],
+            # по остатку без «спасательных» пополнений владельца (как в продукте)
             "balance_mae_rub": round(float(np.abs(err).mean()), 0),
             "balance_wape": round(float(np.abs(err).sum() / max(absact.sum(), 1.0)), 4),
             "balance_mae_pct_turnover": round(float(np.median(rel.mean(axis=1))), 4),
@@ -379,6 +415,10 @@ def metrics_table(met: dict[str, Any]) -> pd.DataFrame:
         g = v["gaps_without_owner_rescue"]
         rows.append({
             "model": m,
+            "Факт: WAPE остатка": v.get("actual_balance_wape"),
+            "Факт: MAE, ₽": v.get("actual_balance_mae_rub"),
+            "Факт: MAE, % мес. оборота": v.get("actual_balance_mae_pct_turnover"),
+            "Факт: покрытие P10–P90": v.get("actual_coverage_p10_p90"),
             "MAE остатка, % мес. оборота": v["balance_mae_pct_turnover"],
             "MAE на 7/14/30 день, %": "/".join(f"{x:.0%}" for x in v["balance_mae_pct_turnover_h7_h14_h30"]),
             "WAPE остатка": v["balance_wape"],

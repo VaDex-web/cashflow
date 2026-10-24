@@ -1,12 +1,15 @@
 """Проверка качества на любом датасете в формате организаторов.
 
-    python -m cashflow_core.evaluate <папка | CSV> [--workers 4] [--out core/reports]
+    python -m cashflow_core.evaluate <папка | CSV> [--workers 4] [--out core/reports] [--split core/reports/split.json]
 
 * ``<папка>`` — папка с ``statements/*.csv`` (или просто с CSV-файлами выписок);
   ``<CSV>`` — один файл: несколько компаний с колонкой ``company_id`` (как
   ``all_operations.csv``) или одна выписка.
 * Для каждой компании — rolling-origin бэктест (модель видит только прошлое,
   горизонт 30 дней) трёх подходов и боевой прогноз на последнюю дату (замер скорости).
+* Сравниваются 4 подхода: «остаток не изменится» (``flat``), наивный, сезонный и гибрид (продукт).
+  Ошибка остатка — по фактическому ``balance_eod`` и по остатку без пополнений владельца.
+* ``--split`` — JSON ``{dev: [...], holdout: [...]}``: метрики отдельно по частям.
 * Результат: ``<out>/evaluate_<имя>.json`` и ``.md`` — MAE/WAPE остатка, ошибка потоков,
   покрытие интервалов, precision/recall разрывов, срок предупреждения, точность
   регулярных платежей, время на компанию, предупреждения и сбои.
@@ -37,7 +40,7 @@ from .parallel import make_pool
 from .schema import INTERVAL_SCALE
 
 #: Меняется, когда меняется модель: старый кэш тогда не используется.
-CACHE_VERSION = "2026-10-24b"
+CACHE_VERSION = "2026-10-24g"
 
 
 def discover(path: str | Path) -> list[tuple[str, Any]]:
@@ -145,6 +148,7 @@ def summarize(results: list[dict[str, Any]], wall_secs: float | None = None) -> 
     warn = Counter(w.split(":")[0].split(" — ")[0][:80] for r in results for w in r.get("forecast_warnings", []))
     return {
         "companies": len(results),
+        "beats_flat": beats_flat(ok),
         "backtest_failed": [r["company_id"] for r in results if r.get("error")],
         "forecast_failed": [r["company_id"] for r in results if not r.get("forecast_ok", False)],
         "models": met,
@@ -157,6 +161,18 @@ def summarize(results: list[dict[str, Any]], wall_secs: float | None = None) -> 
     }
 
 
+def beats_flat(results: list[dict[str, Any]], model: str = "hybrid") -> dict[str, Any]:
+    """Доля компаний, где модель точнее «остаток не изменится» (средняя |ошибка| по фактическому остатку)."""
+    better = total = 0
+    for r in results:
+        a, b = r["records"].get(model, []), r["records"].get("flat", [])
+        if not a or not b:
+            continue
+        total += 1
+        better += int(np.mean(np.abs([x["err_vs_actual"] for x in a])) < np.mean(np.abs([x["err_vs_actual"] for x in b])))
+    return {"model": model, "companies": total, "share": round(better / total, 4) if total else None}
+
+
 def write_report(summary: dict[str, Any], out: Path, name: str, meta: dict[str, Any]) -> tuple[Path, Path]:
     out.mkdir(parents=True, exist_ok=True)
     js = out / f"evaluate_{name}.json"
@@ -164,10 +180,18 @@ def write_report(summary: dict[str, Any], out: Path, name: str, meta: dict[str, 
     js.write_text(json.dumps({"meta": meta, **summary}, ensure_ascii=False, indent=2), encoding="utf-8")
     lines = [f"# Проверка качества: {name}", "",
              f"{meta['generated_at']} · компаний: {summary['companies']} · интервал ×{meta['interval_scale']} · "
-             f"отсечек до {meta['origins']} (шаг {meta['step']} дн.), горизонт 30 дн.", ""]
+             f"отсечек до {meta['origins']} (шаг {meta['step']} дн.), горизонт 30 дн.", "",
+             "«Факт» — ошибка P50 относительно фактического остатка `balance_eod`; остальные колонки — относительно "
+             "остатка без пополнений владельцем (как считает разрывы продукт). `flat` — «остаток не изменится».", ""]
+    for part, sm in [("все", summary)] + list(summary.get("parts", {}).items()):
+        if not sm.get("models"):
+            continue
+        tab = metrics_table(sm["models"])
+        bf = sm.get("beats_flat", {})
+        lines += [f"## {part}: {sm['companies']} компаний", "",
+                  tab.to_markdown() if hasattr(tab, "to_markdown") and _has_tabulate() else "```\n" + tab.to_string() + "\n```", "",
+                  f"Гибрид точнее «остаток не изменится» у {bf.get('share', 0):.0%} компаний ({bf.get('companies')}).", ""]
     if summary["models"]:
-        tab = metrics_table(summary["models"])
-        lines += [tab.to_markdown() if hasattr(tab, "to_markdown") and _has_tabulate() else "```\n" + tab.to_string() + "\n```", ""]
         rec = summary["models"].get("_recurring", {})
         if rec:
             lines.append(f"Регулярные платежи: пришли в ±3 дня — {rec.get('hit_rate_pm3d')}, ошибка суммы (медиана) — "
@@ -205,6 +229,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--sims", type=int, default=500)
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--interval-scale", type=float, default=None, help="по умолчанию — продуктовый INTERVAL_SCALE")
+    ap.add_argument("--split", default=None, help="JSON {dev: [...], holdout: [...]} — метрики отдельно по частям")
     ap.add_argument("--no-cache", action="store_true")
     a = ap.parse_args(argv)
 
@@ -226,6 +251,14 @@ def main(argv: list[str] | None = None) -> int:
             "interval_scale": INTERVAL_SCALE if a.interval_scale is None else a.interval_scale,
             "companies": [c for c, _ in comps]}
     summary = summarize(results, wall)
+    if a.split:
+        sp = json.loads(Path(a.split).read_text(encoding="utf-8"))
+        summary["parts"] = {}
+        for k in ("dev", "holdout"):
+            ids = set(sp.get(k, []))
+            part = [r for r in results if r["company_id"] in ids and not r.get("error")]
+            if part:
+                summary["parts"][k] = {"companies": len(part), "models": aggregate(part), "beats_flat": beats_flat(part)}
     js, md = write_report(summary, out, name, meta)
     if summary["models"]:
         print(metrics_table(summary["models"]).to_string())

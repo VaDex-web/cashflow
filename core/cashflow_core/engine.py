@@ -25,7 +25,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from .categorize import Categorizer, fit_categorizer
+from .categorize import Categorizer, fit_categorizer, owner_flow_mask
 from .flows import MODEL_FACTORIES, error_paths
 from .io import load_statement, to_daily
 from .log import get_logger
@@ -87,11 +87,14 @@ class Plan:
     out_mult: np.ndarray
     extra: np.ndarray             # детерминированные добавки (например, задержанная часть потока)
     warnings: list[str] = field(default_factory=list)
+    #: сжатие к текущему остатку: на сколько сдвинуть все траектории в день h (считается по базе,
+    #: сценарии его не меняют — поэтому эффект сценария и событий виден полностью)
+    shrink: np.ndarray | None = None
 
     def copy(self) -> "Plan":
         return Plan(self.start, self.horizon, self.start_balance, [replace(i) for i in self.items],
                     self.res_in.copy(), self.res_out.copy(), self.in_mult.copy(), self.out_mult.copy(),
-                    self.extra.copy(), list(self.warnings))
+                    self.extra.copy(), list(self.warnings), None if self.shrink is None else self.shrink.copy())
 
     @property
     def dates(self) -> list[date]:
@@ -170,6 +173,8 @@ def _residual_series(df: pd.DataFrame, daily: pd.DataFrame, exclude_ids: set[str
                      exclude_tax: bool) -> tuple[pd.Series, pd.Series]:
     d = df[~df["tx_id"].isin(exclude_ids)]
     d = d[~((d["direction"] == "in") & d["category"].isin(RESCUE_INFLOW_CATEGORIES))]
+    # дивиденды и возврат займов учредителю — решения владельца: как и его пополнения, в прогноз не закладываем
+    d = d[~owner_flow_mask(d)]
     if exclude_tax:
         d = d[~((d["direction"] == "out") & (d["category"] == "taxes"))]
     idx = daily.index
@@ -445,7 +450,44 @@ def build_plan(state: ForecastState, horizon: int | None = None) -> Plan:
 
     r_in, r_out = _residual_forecast(state, H)
     return Plan(start=start, horizon=H, start_balance=state.start_balance, items=items, res_in=r_in, res_out=r_out,
-                in_mult=np.ones(H), out_mult=np.ones(H), extra=np.zeros(H))
+                in_mult=np.ones(H), out_mult=np.ones(H), extra=np.zeros(H),
+                shrink=_shrink_offset(state, items, r_in, r_out, H))
+
+
+def _shrink_offset(state: ForecastState, items: list[PlannedItem], r_in: np.ndarray, r_out: np.ndarray,
+                   H: int) -> np.ndarray | None:
+    """Сдвиг траекторий к текущему остатку (одинаковый для всех траекторий — разброс не меняется).
+
+    Изменение остатка по модели d(h) = K(h) + R(h): K — платежи по расписанию (регулярные из выписки, налоги),
+    R — остаточные потоки (эквайринг, разовые оплаты) вместе с поправками на прошлые ошибки. Итог:
+
+        p50 = остаток + K(h) + SHAPE·(R(h) − R_лин(h)) + (DRIFT·d(30) − K(30))·h/30
+
+    Даты и суммы платежей по расписанию сохраняются полностью (провалы в дни зарплаты и налогов, приход
+    крупного клиента), форма остаточных потоков — на SHAPE, а общий итог месяца — DRIFT от того, что ждёт
+    модель: на «грязной» истории её общее направление часто ошибочно, а «остаток не изменится» — сильный бейзлайн.
+    События (договоры, счета, 1С, ручной ввод) и сценарии не сжимаются: они известны, а не угаданы по истории.
+    """
+    from .schema import SHRINK_DRIFT, SHRINK_SHAPE, SHRINK_SHORT
+
+    shape, drift_w = (SHRINK_SHAPE, SHRINK_DRIFT) if state.mode == "full" else (SHRINK_SHORT, SHRINK_SHORT)
+    if shape >= 1.0 and drift_w >= 1.0:
+        return None
+    known = [it for it in items if it.kind in ("recurring", "tax")]
+    k_net = np.zeros(H)
+    for it in known:
+        if 0 <= it.day < H:
+            k_net[it.day] += (1.0 if it.direction == "in" else -1.0) * it.expected_amount * it.prob_occur
+    K = np.cumsum(k_net)
+    # медиана траекторий только по модели (без событий) — с теми же поправками на прошлые ошибки, что и прогноз
+    model_only = Plan(start=state.as_of + timedelta(days=1), horizon=H, start_balance=0.0, items=known,
+                      res_in=r_in, res_out=r_out, in_mult=np.ones(H), out_mult=np.ones(H), extra=np.zeros(H))
+    d = np.median(simulate(state, model_only).balances, axis=0)
+    R = d - K
+    ref = min(H, 30)
+    lin = np.arange(1, H + 1) / ref
+    target = K + shape * (R - R[ref - 1] * lin) + (drift_w * d[ref - 1] - K[ref - 1]) * lin
+    return d - target
 
 
 # --------------------------------------------------------------------------- simulation
@@ -508,6 +550,8 @@ def simulate(state: ForecastState, plan: Plan, n_sims: int | None = None, seed: 
         res_out = (plan.res_out[None, :] + k * state.err_scale * sd_out * rng0.standard_normal((n, H))) * plan.out_mult[None, :]
     total = flows + res_in - res_out + plan.extra[None, :]
     balances = plan.start_balance + np.cumsum(total, axis=1)
+    if plan.shrink is not None:
+        balances = balances - plan.shrink[None, :H]
     return SimResult(balances=balances, det_in=det_in, det_out=det_out)
 
 

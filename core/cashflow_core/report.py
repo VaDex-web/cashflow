@@ -23,8 +23,9 @@ import pandas as pd
 
 from .backtest import DEFAULT_MODELS, aggregate, backtest, calibrate_interval_scale, metrics_table
 
-_COLORS = {"naive": "#eb6834", "ets": "#1baf7a", "hybrid": "#2a78d6"}
-_LABELS = {"naive": "Наивная (повтор 28 дней)", "ets": "Сезонная ETS-подобная", "hybrid": "Гибрид (наш)"}
+_COLORS = {"flat": "#8a8f98", "naive": "#eb6834", "ets": "#1baf7a", "hybrid": "#2a78d6"}
+_LABELS = {"flat": "Остаток не изменится", "naive": "Наивная (повтор 28 дней)", "ets": "Сезонная ETS-подобная",
+           "hybrid": "Гибрид (наш)"}
 
 
 def _one(args: tuple[str, str, dict[str, Any]]) -> dict[str, Any]:
@@ -95,7 +96,7 @@ def plot_errors(met: dict[str, Any], path: Path) -> None:
     fig.patch.set_facecolor(surface)
     ax.set_facecolor(surface)
     ends = []
-    for m in ("naive", "ets", "hybrid"):
+    for m in ("flat", "naive", "ets", "hybrid"):
         if m not in met:
             continue
         y = np.array(met[m]["balance_mae_pct_turnover_by_h"]) * 100
@@ -112,7 +113,7 @@ def plot_errors(met: dict[str, Any], path: Path) -> None:
         ax.annotate(txt, (xe, ylab), xytext=(6, 0), textcoords="offset points", va="center", color=ink2, fontsize=9)
     ax.set_xlabel("День горизонта прогноза", color=ink2)
     ax.set_ylabel("Ошибка остатка, % месячного оборота\n(медиана по прогнозам)", color=ink2)
-    ax.set_title("Ошибка прогноза остатка растёт с горизонтом: гибрид держит её ниже", color=ink, loc="left",
+    ax.set_title("Ошибка прогноза фактического остатка по дням горизонта (holdout)", color=ink, loc="left",
                  fontsize=12)
     ax.grid(axis="y", color=grid, lw=0.8)
     ax.set_axisbelow(True)
@@ -200,8 +201,9 @@ def write_markdown(met: dict[str, Any], meta: dict[str, Any], cat: dict[str, Any
     path.write_text("\n".join(lines), encoding="utf-8")
 
 
-_CONTRACT_NAMES = {"naive": "Наивная (повтор последних 28 дней)", "ets": "Сезонная (ETS-подобная)",
-                   "hybrid": "Регулярные платежи + налоги + события + Монте-Карло"}
+_CONTRACT_NAMES = {"flat": "Остаток не изменится (бейзлайн)", "naive": "Наивная (повтор последних 28 дней)",
+                   "ets": "Сезонная (ETS-подобная)",
+                   "hybrid": "Регулярные платежи + налоги + события + Монте-Карло, сжатие к текущему остатку"}
 
 
 def demo_series(path: Path, company_id: str, horizon: int = 30, n_sims: int = 1000, seed: int = 42) -> list[dict[str, Any]]:
@@ -287,6 +289,130 @@ def _load_split(out: Path, data: Path, seed: int) -> dict[str, Any]:
     return sp
 
 
+def publish(out: Path, data: Path, name: str = "raw", demo: str = "C001") -> dict[str, Any]:
+    """Отчёт для слайдов и экрана «Качество» из готовых прогонов: ``evaluate_<name>.json`` (rolling origin, dev и
+    holdout) и ``control_<name>.json`` (последние 30 дней каждой выписки — факт). Цифры — только holdout.
+
+    ``metrics.json`` — формат контракта: ``mae`` — средняя ошибка P50 относительно фактического остатка, ₽;
+    ``mape`` — медиана той же ошибки в долях месячного оборота (подпись в интерфейсе — «MAE, % оборота»);
+    ``coverage_80`` — доля дней, где фактический остаток внутри P10–P90; разрывы — по остатку без пополнений владельца.
+    """
+    from .control import control_company
+
+    ev = json.loads((out / f"evaluate_{name}.json").read_text(encoding="utf-8"))
+    ctl = json.loads((out / f"control_{name}.json").read_text(encoding="utf-8"))
+    hold = ev["parts"]["holdout"]
+    met = hold["models"]
+    models = []
+    for m in ("flat", "naive", "ets", "hybrid"):
+        if m not in met:
+            continue
+        v, g = met[m], met[m]["gaps_without_owner_rescue"]
+        models.append({"name": _CONTRACT_NAMES[m], "mae": v["actual_balance_mae_rub"],
+                       "mape": v["actual_balance_mae_pct_turnover"], "coverage_80": v["actual_coverage_p10_p90"],
+                       "gap_recall": g["recall"] or 0.0, "gap_precision": g["precision"] or 0.0,
+                       "is_selected": m == "hybrid"})
+    c = control_company(demo, str(data / "statements" / f"{demo}.csv"))
+    series = [{"date": (pd.Timestamp(c["as_of"]) + pd.Timedelta(days=i + 1)).date().isoformat(),
+               "actual": round(a, 2), "predicted": round(p, 2), "low": round(lo, 2), "high": round(hi, 2)}
+              for i, (a, p, lo, hi) in enumerate(zip(c["actual"], c["p50"], c["lo"], c["hi"]))]
+    n_hold = hold["companies"]
+    contract = {"generated_at": ev["meta"]["generated_at"],
+                "dataset": f"Датасет организаторов, {n_hold} отложенных компаний (holdout), rolling origin "
+                           f"{ev['meta']['origins']} отсечек × 30 дн., ошибка — по фактическому остатку; "
+                           f"график — {demo}, последние 30 дней выписки",
+                "horizon_days": 30, "models": models, "backtest": series}
+    (out / "metrics.json").write_text(json.dumps(contract, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    def pct(x: Any) -> str:
+        return "—" if x is None else f"{x:.0%}"
+
+    def pct1(x: float) -> str:
+        return f"{x * 100:.1f}%".replace(".", ",")
+
+    def rubs(x: float) -> str:
+        return f"{x:,.0f}".replace(",", " ")
+
+    lines = ["# Качество прогноза: фактический остаток и бейзлайн «остаток не изменится»", "",
+             f"Сформировано {ev['meta']['generated_at']}. Компании разделены на dev ({ev['parts']['dev']['companies']}) и "
+             f"holdout ({n_hold}) 50/50 внутри отрасли (`split.json`). Параметры (сжатие к текущему остатку, ширина "
+             "интервала) подбирались **только на dev**; ниже — цифры holdout, если не сказано иное.", "",
+             "## 1. Имитация контрольного датасета (последние 30 дней каждой выписки — факт)", "",
+             "Прогноз строится тем же путём, что `predict`, по выписке без последних 30 дней; P50 сравнивается с "
+             "фактическим `balance_eod` (`python -m cashflow_core.control data/raw --split core/reports/split.json`).", "",
+             "| выборка | компаний | WAPE модели | WAPE «не изменится» | медиана WAPE по компаниям: модель / бейзлайн | "
+             "MAE модели, ₽ (медиана по компаниям) | MAE бейзлайна, ₽ | покрытие P10–P90 | модель точнее бейзлайна |",
+             "|---|---|---|---|---|---|---|---|---|"]
+    for part in ("все", "dev", "holdout"):
+        sm = ctl["parts"].get(part)
+        if not sm:
+            continue
+        mm, ff = sm["model"], sm["flat"]
+        lines.append(f"| {part} | {sm['companies']} | {mm['wape']:.3f} | {ff['wape']:.3f} | {mm['wape_median_company']:.3f} / "
+                     f"{ff['wape_median_company']:.3f} | {mm['mae_rub_median_company']:,.0f} | {ff['mae_rub_median_company']:,.0f} | "
+                     f"{sm['coverage_p10_p90']:.2f} | {pct(sm['share_model_better'])} |".replace(",", " "))
+    lines += ["", "## 2. Rolling origin: 8 прогнозов на компанию × 30 дней, holdout", "",
+              "| модель | WAPE по факту | MAE, ₽ | MAE, % мес. оборота (медиана) | на 7 / 14 / 30 день | покрытие P10–P90 | "
+              "разрывы: точность / полнота | прогнозов |", "|---|---|---|---|---|---|---|---|"]
+    for m in ("flat", "naive", "ets", "hybrid"):
+        if m not in met:
+            continue
+        v, g = met[m], met[m]["gaps_without_owner_rescue"]
+        h = " / ".join(pct(x) for x in v["actual_balance_mae_pct_turnover_h7_h14_h30"])
+        gg = f"{pct(g['precision'])} / {pct(g['recall'])}"
+        lines.append(f"| {_LABELS[m]} | {v['actual_balance_wape']:.3f} | {v['actual_balance_mae_rub']:,.0f} | "
+                     f"{pct(v['actual_balance_mae_pct_turnover'])} | {h} | {v['actual_coverage_p10_p90']:.2f} | {gg} | "
+                     f"{v['n_forecasts']} |".replace(",", " "))
+    bf = hold.get("beats_flat", {})
+    bd = ev["parts"]["dev"].get("beats_flat", {})
+    ch = ctl["parts"]["holdout"]
+    hy = met["hybrid"]["gaps_without_owner_rescue"]
+    lines += ["", f"Гибрид точнее «остаток не изменится» (средняя ошибка по фактическому остатку) у {pct(bf.get('share'))} "
+                  f"holdout-компаний и у {pct(bd.get('share'))} dev-компаний.", "",
+              "## 3. Что сделано, чтобы не проигрывать простому бейзлайну", "",
+              "* Прогноз «как есть» проигрывал «остатку без изменений»: поступления и списания модель прогнозирует "
+              "по отдельности, и ошибки в общем направлении за месяц у «рваных» историй (опт, агро, стройка) больше, "
+              "чем колебания остатка.",
+              "* Платежи по расписанию (регулярные из выписки, налоги) сохраняются полностью — с датами и суммами; "
+              "остаточные потоки сжимаются к текущему остатку: p50 = остаток + K(h) + 0,5·(R(h) − R_лин(h)) + "
+              "(0,05·d(30) − K(30))·h/30. Веса подобраны на dev (`shrink.json`). Для истории короче 90 дней "
+              "общий итог месяца — 0, разброс — по прошлым изменениям остатка самой компании.",
+              "* Дивиденды, займы учредителя и их возврат — решения владельца: прогноз их не ожидает (раньше квартальные "
+              "дивиденды считались регулярным платежом).",
+              "* Интервал откалиброван на dev по фактическому остатку (множитель 1,25 вместо 1,45).", "",
+              "## 4. Разрывы", "",
+              f"* По остатку без пополнений владельца (как считает разрыв продукт): точность {pct(hy['precision'])}, "
+              f"полнота {pct(hy['recall'])}, предупреждение в среднем за {hy.get('lead_days_mean', '—')} дн., "
+              f"Brier {hy.get('brier', '—')}.",
+              f"* По фактическому остатку разрывы редки (владельцы пополняют счёт): в имитации контрольного датасета "
+              f"ниже 0 ушли {ctl['parts']['все']['gaps']['actual']} компаний, P50 ниже 0 предсказан у "
+              f"{ctl['parts']['все']['gaps']['predicted_p50']}, совпало {ctl['parts']['все']['gaps']['both']}.", "",
+              "## 5. Честно о результате", "",
+              f"* Общий WAPE по фактическому остатку на holdout **хуже** бейзлайна: {met['hybrid']['actual_balance_wape']:.3f} "
+              f"против {met['flat']['actual_balance_wape']:.3f} (rolling origin) и {ch['model']['wape']:.3f} против "
+              f"{ch['flat']['wape']:.3f} (последние 30 дней). Его определяют несколько крупных компаний с «рваными» "
+              "потоками (опт, агро), где лучше всего работает «остаток не изменится».",
+              f"* По относительной ошибке модель **лучше**: медиана MAE в долях оборота {pct1(met['hybrid']['actual_balance_mae_pct_turnover'])} "
+              f"против {pct1(met['flat']['actual_balance_mae_pct_turnover'])}, медиана WAPE по компаниям "
+              f"{ch['model']['wape_median_company']:.3f} против {ch['flat']['wape_median_company']:.3f}; модель точнее у "
+              f"{pct(bf.get('share'))} компаний (последние 30 дней — у {pct(ch['share_model_better'])}). Медиана MAE в рублях "
+              f"на последних 30 днях хуже: {rubs(ch['model']['mae_rub_median_company'])} против "
+              f"{rubs(ch['flat']['mae_rub_median_company'])} ₽.",
+              "* Поэтому финальный прогноз — смесь модели с бейзлайном: модель добавляет даты известных платежей "
+              "(провалы перед зарплатой и налогами), а общий итог месяца почти совпадает с текущим остатком.",
+              "* Повторить: `python -m cashflow_core.evaluate data/raw --split core/reports/split.json --name raw` и "
+              "`python -m cashflow_core.control data/raw --split core/reports/split.json --name raw`, затем "
+              "`python -m cashflow_core.report publish`.", ""]
+    (out / "metrics.md").write_text("\n".join(lines), encoding="utf-8")
+    try:
+        plot_errors({m: {**met[m], "balance_mae_pct_turnover_by_h": met[m].get("actual_balance_mae_pct_turnover_by_h")
+                         or met[m]["balance_mae_pct_turnover_by_h"]} for m in met if not m.startswith("_")},
+                    out / "errors.png")
+    except Exception:  # noqa: BLE001 — картинка не обязательна
+        pass
+    return contract
+
+
 def main(argv: list[str] | None = None) -> int:
     """Внутренний конвейер оценки на датасете организаторов.
 
@@ -295,13 +421,15 @@ def main(argv: list[str] | None = None) -> int:
                        (``core/reports/calibration.json``); его вносят в ``schema.INTERVAL_SCALE``;
     3. ``final``     — бэктест holdout-компаний в продуктовой конфигурации → ``metrics.json``
                        (формат контракта), ``metrics.md``, ``errors.png``, ``metrics_detail.json``;
-    4. ``rebuild``   — пересобрать файлы отчёта из ``metrics_detail.json``.
+    4. ``rebuild``   — пересобрать файлы отчёта из ``metrics_detail.json``;
+    5. ``publish``   — ``metrics.json`` и ``metrics.md`` из ``evaluate_raw.json`` и ``control_raw.json``
+                       (фактический остаток, бейзлайн «остаток не изменится», dev и holdout).
     """
     from .evaluate import run, summarize, write_report
     from .schema import INTERVAL_SCALE
 
     ap = argparse.ArgumentParser(description="Оценка качества: dev/holdout")
-    ap.add_argument("step_name", choices=["split", "calibrate", "final", "rebuild"])
+    ap.add_argument("step_name", choices=["split", "calibrate", "final", "rebuild", "publish"])
     ap.add_argument("--data", default="data/raw", help="папка с statements/ и companies.csv")
     ap.add_argument("--origins", type=int, default=8)
     ap.add_argument("--step", type=int, default=21)
@@ -313,6 +441,12 @@ def main(argv: list[str] | None = None) -> int:
     a = ap.parse_args(argv)
     data, out = Path(a.data), Path(a.out)
     cache = out / "_cache" / "evaluate"
+
+    if a.step_name == "publish":
+        res = publish(out, data, demo=a.demo_company or "C001")
+        for m in res["models"]:
+            print(m)
+        return 0
 
     if a.step_name == "rebuild":
         detail = json.loads((out / "metrics_detail.json").read_text(encoding="utf-8"))

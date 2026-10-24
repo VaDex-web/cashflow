@@ -407,8 +407,8 @@ def _event_dicts(rows: list[EventRow]) -> list[dict[str, Any]]:
 
 
 def _key(company: Company, events: list[dict[str, Any]], checks: dict[str, Any], horizon: int, cushion: float = 0.0) -> str:
-    # "risk-v2": порог разрыва 0 ₽ + комфортный минимум отдельно — старые сохранённые состояния пересобираются
-    blob = json.dumps(["risk-v2", events, checks, horizon, get_settings().registry_delay_days, round(cushion, 2)], sort_keys=True,
+    # "risk-v3": порог разрыва 0 ₽ + комфортный минимум отдельно — старые сохранённые состояния пересобираются
+    blob = json.dumps(["risk-v3", events, checks, horizon, get_settings().registry_delay_days, round(cushion, 2)], sort_keys=True,
                       ensure_ascii=False, default=str)
     return f"{get_core().name}:{company.tx_version}:{hashlib.sha1(blob.encode()).hexdigest()[:16]}"
 

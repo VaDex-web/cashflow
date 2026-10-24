@@ -159,8 +159,12 @@ def find_risks(state: "ForecastState", plan: "Plan", sim: "SimResult", with_kind
     if comfort > thr:
         p_c = (bal < comfort).mean(axis=0)
         for a, b in _episodes(p_c, COMFORT_PROBABILITY_REPORT):
-            if any(d in gap_days for d in range(a, b + 1)):
+            if a in gap_days:
                 continue  # в эти дни уже есть риск разрыва — он важнее
+            end = a
+            while end < b and end + 1 not in gap_days:
+                end += 1
+            b = end  # «ниже подушки» — только дни до разрыва
             k, prob, shortfall = _episode_stats(bal, p_c, comfort, a, b)
             risks.append((k, {
                 "kind": "below_comfort",

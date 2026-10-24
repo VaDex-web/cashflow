@@ -80,3 +80,25 @@ def test_enp_is_28th_even_with_late_payments():
     assert tax[0].next_date(as_of) == date(2026, 10, 28)
     rec = [r for r in detect_recurring(c, as_of) if r["name"].startswith("Налоги")]
     assert rec and rec[0]["next_date"] == "2026-10-28"
+
+
+def test_dividends_and_founder_loans_are_not_recurring():
+    # дивиденды каждый квартал и возврат займа учредителю каждый месяц — решения владельца, а не обязательства
+    rows = []
+    for k in range(18):
+        y, m = divmod(2025 * 12 + k, 12)
+        rows.append({"operation_date": date(y, m + 1, 15).isoformat(), "amount": 400_000, "direction": "Списание",
+                     "counterparty_inn": "", "counterparty_name": "Учредитель (физическое лицо)",
+                     "payment_purpose": "Возврат беспроцентного займа учредителю по договору № 1/25", "balance_eod": 9e6})
+        if m % 3 == 0:
+            rows.append({"operation_date": date(y, m + 1, 16).isoformat(), "amount": 2_000_000, "direction": "Списание",
+                         "counterparty_inn": "", "counterparty_name": "Участник общества (физическое лицо)",
+                         "payment_purpose": "Выплата дивидендов за 1 квартал 2025 г. согласно решению участника",
+                         "balance_eod": 7e6})
+        rows.append({"operation_date": date(y, m + 1, 10).isoformat(), "amount": 300_000, "direction": "Списание",
+                     "counterparty_inn": "", "counterparty_name": "Сотрудники",
+                     "payment_purpose": "Заработная плата за месяц", "balance_eod": 8e6})
+    c = categorize(load_statement(pd.DataFrame(rows)))
+    names = [p.name for p in find_patterns(c)]
+    assert any(n.startswith("Зарплата") for n in names)
+    assert not any("Учредитель" in n or "Участник" in n or n.startswith("Прочее") or n.startswith("Кредиты") for n in names)
