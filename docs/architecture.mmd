@@ -10,11 +10,11 @@ flowchart LR
 
   subgraph API["api/ · FastAPI"]
     direction TB
-    auth["🔒 Аутентификация JWT<br/>POST /auth/login"]
-    logf["🧹 Фильтр логов<br/>маскирует ИНН, суммы, назначения"]
+    auth["🔒 JWT: /auth/login, демо-вход /auth/demo<br/>общие компании — только чтение,<br/>у гостя своя копия"]
+    logf["🧹 Фильтр логов и лимит запросов<br/>маскирует ИНН, суммы, назначения"]
     routes["REST /api/companies/…<br/>forecast · alerts · scenarios<br/>events · plan-fact · categories"]
     integ["Коннекторы интеграций<br/>/integrations/{name}/sync"]
-    store[("Хранилище<br/>выписки, события,<br/>состояние прогноза")]
+    store[("SQLite<br/>операции, события,<br/>состояние прогноза")]
     auth --> routes
     routes --- logf
     routes <--> store
@@ -25,12 +25,12 @@ flowchart LR
     direction TB
     load["load_statement<br/>чистка: дубли, пропуски,<br/>BOM, «;», ИНН строкой"]
     cat["categorize<br/>категория + уверенность"]
-    rec["detect_recurring<br/>зарплата, аренда, ЕНП, кредиты"]
-    fc["forecast<br/>остаток по дням:<br/>ожидаемый + диапазон"]
+    rec["detect_recurring<br/>зарплата, аренда, ЕНП 28-го, кредиты"]
+    fc["forecast<br/>регулярные + налоги + потоки,<br/>Монте-Карло, сжатие к остатку"]
     risk["Риски<br/>дата, сумма, вероятность,<br/>рекомендации"]
     scen["run_scenarios<br/>«что если»"]
     upd["update_forecast<br/>без полного пересчёта"]
-    bt["backtest · compare_models<br/>→ reports/metrics.json"]
+    bt["evaluate · control<br/>→ reports/metrics.json"]
     load --> cat --> rec --> fc --> risk
     fc --> scen
     fc --> upd
@@ -47,14 +47,14 @@ flowchart LR
   end
 
   user -- "работает в браузере" --> ui
-  client -- "HTTPS + Bearer JWT<br/>JSON по docs/contract.md" --> auth
+  client -- "HTTPS (Caddy) + Bearer JWT<br/>JSON по docs/contract.md" --> auth
   routes -- "DataFrame операций<br/>+ события Event[]" --> load
   risk -- "ForecastResult / ScenarioResult" --> routes
   bank -- "CSV выписки" --> routes
-  onec -- "Event: invoice, contract, payroll" --> integ
+  onec -- "выгрузка: invoice, contract, payroll" --> integ
   tax -- "Event: tax" --> integ
   reg -- "Event: contract" --> integ
-  manual -- "POST /events" --> routes
+  manual -- "POST /events, фраза" --> routes
   bt -. "метрики для страницы «Качество»" .-> ui
 
   classDef web fill:#eef7e1,stroke:#6fa62a,color:#13241c

@@ -2,6 +2,8 @@ import { Area, CartesianGrid, ComposedChart, Legend, Line, ResponsiveContainer, 
 import { api } from '../api/client'
 import { ErrorBox, Hint, Loading } from '../components/ui'
 import { fmtDayShort, fmtPct, fmtRub, fmtRubShort } from '../lib/format'
+
+const fmtPct1 = (p: number) => `${(p * 100).toFixed(1).replace('.', ',')}%`
 import { useAsync } from '../lib/useAsync'
 
 export function Quality() {
@@ -28,7 +30,7 @@ export function Quality() {
       {best && (
         <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
           <Big label="Средняя ошибка остатка" value={blank(best.mae, fmtRub)} hint="MAE: на сколько рублей в среднем прогноз отличается от фактического остатка на счёте на горизонте прогноза." />
-          <Big label="Ошибка в долях оборота" value={blank(best.mape, fmtPct)} hint="MAE, % оборота: средняя ошибка прогноза остатка в процентах от месячного оборота (списаний за месяц) — так ошибки малых и крупных компаний сравнимы." />
+          <Big label="Ошибка в долях оборота" value={blank(best.mape, fmtPct1)} hint="MAE, % оборота: средняя ошибка прогноза остатка в процентах от месячного оборота (списаний за месяц) — так ошибки малых и крупных компаний сравнимы." />
           <Big label="Факт внутри диапазона" value={blank(best.coverage_80, fmtPct)} hint="Доля дней, когда фактический остаток попал в «возможный диапазон». Цель — около 80%." />
           <Big label="Находим разрывы" value={blank(best.gap_recall, fmtPct)} hint="Recall: доля разрывов (деньги кончились бы без пополнения владельцем), о которых модель предупредила заранее." />
           <Big label="Точность предупреждений" value={blank(best.gap_precision, fmtPct)} hint="Precision: доля предупреждений, после которых разрыв действительно случился." />
@@ -49,8 +51,8 @@ export function Quality() {
               {r.models.map((x) => (
                 <tr key={x.name} style={x.is_selected ? { background: 'var(--lime-100)', fontWeight: 650 } : undefined}>
                   <td>{x.name} {x.is_selected && <span className="badge b-low">выбрана</span>}</td>
-                  <td className="r">{blank(x.mae, fmtRub)}</td>
-                  <td className="r">{blank(x.mape, fmtPct)}</td>
+                  <td className="r" style={{ whiteSpace: 'nowrap' }}>{blank(x.mae, fmtRub)}</td>
+                  <td className="r">{blank(x.mape, fmtPct1)}</td>
                   <td className="r">{blank(x.coverage_80, fmtPct)}</td>
                   <td className="r">{blank(x.gap_recall, fmtPct)}</td>
                   <td className="r">{blank(x.gap_precision, fmtPct)}</td>

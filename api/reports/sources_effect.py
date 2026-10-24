@@ -79,7 +79,8 @@ def part_a() -> list[dict[str, Any]]:
     syn = ROOT / "data" / "synthetic"
     tmp = Path(tempfile.mkdtemp(prefix="sources_effect_"))
     reset_settings(use_stub_core=False, data_dir=tmp, database_url=f"sqlite:///{tmp / 'r.db'}",
-                   jwt_secret="report-secret-0123456789abcdef0123456789", users="report:report")
+                   jwt_secret="report-secret-0123456789abcdef0123456789", users="report:report",
+                   rate_limit_per_min=0, rate_limit_heavy_per_min=0)
     core_adapter.reset_core()
     services.reset_cache()
     db.init_db()

@@ -13,6 +13,7 @@ npm i pptxgenjs sharp react react-dom react-icons
 PPTX_SKILL=<папка со scripts/apply_theme.js> node docs/tools/build_presentation.js .
 ```
 
-Цифры на слайдах (константы `Q`, `SRC_*` в начале скрипта) перепроверены запуском 24.10.2026:
-`python -m cashflow_core.evaluate data/raw --ids <holdout из core/reports/split.json> --sims 500 --origins 8 --step 21`
-и `python -m api.reports.sources_effect --part A`. История C124 — `docs/demo_story.md`.
+Цифры на слайдах (константы `Q`, `SRC_*` в начале скрипта) взяты из отчётов, пересчитанных 24.10.2026:
+`core/reports/metrics.md` (`python -m cashflow_core.evaluate data/raw --split core/reports/split.json --name raw`,
+`python -m cashflow_core.control data/raw --split core/reports/split.json --name raw`, `python -m cashflow_core.report publish`)
+и `api/reports/sources_effect.md` (`python -m api.reports.sources_effect --part A`). История C124 — `docs/demo_story.md`.

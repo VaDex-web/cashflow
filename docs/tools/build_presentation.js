@@ -92,10 +92,11 @@ function card(slide, x, y, w, h, fill = C.background2, name = 'card') {
 }
 const content = (section) => pres.addSlide({ masterName: 'CONTENT', sectionTitle: section })
 
-const Q = { mae: 16, maeNaive: 21, maeEts: 19, cov: 80, recall: 72, lead: 14, precision: 46, n: 73, forecasts: 542 }
+const Q = { mae: '13,1', maeFlat: '13,3', maeNaive: 21.5, maeEts: 19.0, maeVal: 13.1, maeFlatVal: 13.3, wape: '0,263', wapeFlat: '0,253',
+  better: 61, cov: 81, recall: 61, precision: 70, lead: 12, n: 73, forecasts: 542, ctlWape: '0,235', ctlWapeFlat: '0,231', ctlBetter: 54 }
 const SRC_LABELS = ['Только выписка', '+ налоговый календарь', '+ 1С', '+ открытые реестры', '+ 1С + реестры']
-const SRC_VALUES = [1.80, 1.67, 1.27, 0.78, 0.51]
-const SRC_TAKEAWAY = 'Только по выписке разрыв 5 ноября не виден (вероятность 18%). С 1С и реестрами — найден, вероятность 75%.'
+const SRC_VALUES = [1.78, 1.48, 1.27, 0.74, 0.46]
+const SRC_TAKEAWAY = 'На синтетической демо-компании S02: только по выписке разрыв не виден (вероятность 18%), с 1С и реестрами — найден (86%).'
 ;(async () => {
   pres.addSection({ title: 'Начало' })
   let s = pres.addSlide({ masterName: 'DARK', sectionTitle: 'Начало' })
@@ -103,8 +104,8 @@ const SRC_TAKEAWAY = 'Только по выписке разрыв 5 ноябр
   s.addText('₽', { x: 0.6, y: 0.7, w: 0.62, h: 0.62, fontSize: 26, bold: true, color: C.text2, align: 'center', valign: 'middle', margin: 0, isTextBox: true, objectName: 'logo glyph' })
   s.addText('Хакатон Банка Центр-Инвест', { x: 1.4, y: 0.75, w: 6, h: 0.5, fontSize: 14, color: 'A9C7B5', valign: 'middle', margin: 0, isTextBox: true, objectName: 'event' })
   s.addText('Денежный прогноз', { placeholder: 'title' })
-  s.addText('Предупреждаем предпринимателя о кассовом разрыве за 2 недели — и подсказываем, что сделать', { placeholder: 'body' })
-  s.addNotes('Ведущий (10 с): Малый бизнес часто закрывается не из-за убытков, а потому что в нужный день на счёте нет денег. Мы сделали сервис, который за две недели говорит: когда не хватит, сколько и что сделать.')
+  s.addText('Предупреждаем предпринимателя о кассовом разрыве заранее — и подсказываем, что сделать', { placeholder: 'body' })
+  s.addNotes('Ведущий (10 с): Малый бизнес часто закрывается не из-за убытков, а потому что в нужный день на счёте нет денег. Мы сделали сервис, который заранее говорит: когда не хватит, сколько и что сделать.')
 
   pres.addSection({ title: 'Проблема и решение' })
   s = content('Проблема и решение')
@@ -130,7 +131,7 @@ const SRC_TAKEAWAY = 'Только по выписке разрыв 5 ноябр
   s = content('Проблема и решение')
   s.addText('Три ответа на одном экране', { placeholder: 'title' })
   const sol = [
-    [fa.FaScaleBalanced, 'Хватит ли денег', 'светофор и одна фраза: «через 14 дней, 30 сентября, может не хватить 678 000 ₽»'],
+    [fa.FaScaleBalanced, 'Хватит ли денег', 'светофор и одна фраза: «через 14 дней, 30 сентября, может не хватить 458 000 ₽»'],
     [fa.FaCalendarDays, 'Когда и сколько', 'остаток по дням на 30+ дней: ожидаемый и возможный диапазон, дата, сумма и вероятность разрыва'],
     [fa.FaListCheck, 'Что делать', 'конкретное действие: «попросите ООО «Ритейл-381» оплатить до 30 сентября»'],
   ]
@@ -141,7 +142,7 @@ const SRC_TAKEAWAY = 'Только по выписке разрыв 5 ноябр
     s.addText(sol[i][2], { x: 1.2, y: y + 0.34, w: 3.1, h: 0.8, fontSize: 12, color: C.text1, margin: 0, valign: 'top', isTextBox: true, objectName: 'solution text ' + i })
   }
   await screen(s, '03_preduprezhdenie.png', { x: 4.55, y: 1.2, w: 4.95, h: 3.85 }, { name: 'risk card screenshot' })
-  s.addNotes('Ведущий (20 с): Цель кейса — прогноз остатка по дням на 30+ дней, разрыв с датой, суммой и вероятностью, понятно человеку без финансового образования. Всё это — на главном экране.')
+  s.addNotes('Ведущий (15 с): Прогноз остатка по дням на 30+ дней, разрыв с датой, суммой и вероятностью — понятно человеку без финансового образования, на главном экране.')
 
   pres.addSection({ title: 'Демо' })
   s = content('Демо')
@@ -149,34 +150,34 @@ const SRC_TAKEAWAY = 'Только по выписке разрыв 5 ноябр
   await screen(s, '04_grafik.png', { x: 0.5, y: 1.1, w: 5.6, h: 4.05 }, { name: 'chart screenshot' })
   const facts = [
     ['30 сентября', 'дата разрыва: прогноз = факт', C.accent2],
-    ['98%', 'вероятность — за 14 дней; за 10 и 7 дней — 97%', C.accent3],
-    ['−678 тыс. ₽', 'ожидаемый остаток; на деле −472 тыс. ₽ — налог сервис оценил выше факта', C.text2],
+    ['58%', 'вероятность за 14 и за 7 дней: средний риск, светофор жёлтый', C.accent4],
+    ['−458 тыс. ₽', 'ожидаемый остаток; на деле −381 тыс. ₽ 30.09 и −472 тыс. ₽ 1.10', C.text2],
   ]
   for (let i = 0; i < facts.length; i++) {
     const y = 1.15 + i * 1.3
     s.addText(facts[i][0], { x: 6.4, y, w: 3.1, h: 0.6, fontSize: 30, bold: true, color: facts[i][2], margin: 0, isTextBox: true, objectName: 'fact value ' + i })
     s.addText(facts[i][1], { x: 6.4, y: y + 0.6, w: 3.1, h: 0.6, fontSize: 12, color: C.text1, margin: 0, valign: 'top', isTextBox: true, objectName: 'fact label ' + i })
   }
-  s.addNotes('Оператор (60 с): Нажимаем «Посмотреть демо», загружаем выписку этой компании по 16 сентября — будущего сервис не видит. Подключаем налоговый календарь. Главная: через 14 дней, 30 сентября, может не хватить 678 тысяч, вероятность 98%, и первое действие. Ведущий: на самом деле разрыв случился ровно 30 сентября, минус 472 тысячи. Сумму мы назвали больше: налог оценили выше факта.')
+  s.addNotes('Оператор (45 с): «Посмотреть демо» → загружаем выписку по 16 сентября (будущего сервис не видит) → подключаем налоговый календарь → главная. Ведущий: через 14 дней, 30 сентября, может не хватить 458 тысяч, вероятность 58%, и первое действие. На самом деле 30 сентября на счёте минус 381 тысяча, 1 октября — минус 472.')
 
   s = content('Демо')
   s.addText('«Что если» и источники: прогноз меняется сразу', { placeholder: 'title' })
   await screen(s, '06_chto_esli.png', { x: 0.5, y: 1.1, w: 5.1, h: 3.0 }, { name: 'scenario screenshot' })
-  s.addText('Клиент заплатит на 3 недели позже → «не хватит уже 1 473 000 ₽ вместо 678 000 ₽». База и сценарий — на одном графике.', { x: 0.5, y: 4.2, w: 5.1, h: 0.8, fontSize: 12, color: C.text1, margin: 0, valign: 'top', isTextBox: true, objectName: 'scenario note' })
+  s.addText('Клиент заплатит на 3 недели позже → «не хватит уже 910 000 ₽ вместо 458 000 ₽». База и сценарий — на одном графике.', { x: 0.5, y: 4.2, w: 5.1, h: 0.8, fontSize: 12, color: C.text1, margin: 0, valign: 'top', isTextBox: true, objectName: 'scenario note' })
   await screen(s, '05_istochniki.png', { x: 5.8, y: 1.1, w: 3.7, h: 2.6 }, { crop: 0.62, name: 'sources screenshot' })
   s.addText([
-    { text: 'платёж фразой: «клиент обещал 300 000 ₽ 20-го»', options: { bullet: true, breakLine: true } },
-    { text: 'у каждого события виден источник', options: { bullet: true, breakLine: true } },
+    { text: 'подключили источник → на экране «было → стало»', options: { bullet: true, breakLine: true } },
+    { text: 'платёж фразой: «купим станок за 1,2 млн 10 ноября»', options: { bullet: true, breakLine: true } },
     { text: 'план-факт: не пришёл платёж → прогноз пересчитан', options: { bullet: true } },
   ], { x: 5.8, y: 3.85, w: 3.7, h: 1.2, fontSize: 12, color: C.text1, paraSpaceAfter: 4, margin: 0, valign: 'top', isTextBox: true, objectName: 'sources list' })
-  s.addNotes('Оператор (40 с): «Что если»: клиент заплатит на три недели позже — нехватка вырастает до 1,47 миллиона. Платежи и источники: подключаем налоговый календарь, добавляем платёж обычной фразой — прогноз на главной меняется сразу.')
+  s.addNotes('Оператор (30 с): «Что если»: клиент заплатит на три недели позже — нехватка вырастает до 910 тысяч. Ведущий: источники и ручной ввод меняют прогноз сразу — экран показывает «было → стало».')
 
   pres.addSection({ title: 'Данные и подход' })
   s = content('Данные и подход')
   s.addText('Источники данных: каждый добавляет точность', { placeholder: 'title' })
   const src = [
-    [fa.FaBuildingColumns, 'Банк', 'выписка, регулярные платежи, графики кредитов, подписанные платёжки'],
-    [fa.FaBook, '1С', 'счета, договоры, зарплатные ведомости, просрочки'],
+    [fa.FaBuildingColumns, 'Банк', 'выписка, регулярные платежи; графики кредитов и платёжки — на тестовых выгрузках'],
+    [fa.FaBook, '1С', 'счета, договоры, зарплата — загрузка выгрузки; в демо тестовые файлы'],
     [fa.FaReceipt, 'Налоговый календарь', 'ЕНП 28-го, УСН, НДС; режим определяем по выписке'],
     [fa.FaScroll, 'Открытые реестры', 'долги и суды контрагента → риск задержки оплаты'],
     [fa.FaPenToSquare, 'Ручной ввод', 'форма или обычная фраза'],
@@ -189,21 +190,21 @@ const SRC_TAKEAWAY = 'Только по выписке разрыв 5 ноябр
   }
   s.addChart(pres.charts.BAR, [{ name: 'Ошибка прогноза, млн ₽', labels: SRC_LABELS, values: SRC_VALUES }], {
     x: 4.9, y: 1.1, w: 4.6, h: 3.2, barDir: 'bar', chartColors: ['7A8A80', '7A8A80', '11553F', '11553F', '8DC63F'],
-    showTitle: true, title: 'Ошибка остатка на 30 дней, млн ₽ (демо-компания S02)', titleFontSize: 12, titleColor: HEX.text, titleFontFace: '+mn-lt',
+    showTitle: true, title: 'Ошибка остатка на 30 дней, млн ₽ (синтетическая демо-компания S02)', titleFontSize: 12, titleColor: HEX.text, titleFontFace: '+mn-lt',
     showValue: true, dataLabelPosition: 'outEnd', dataLabelFormatCode: '0.00', dataLabelFontSize: 11, dataLabelColor: HEX.text, dataLabelFontFace: '+mn-lt',
     catAxisLabelColor: HEX.text2, catAxisLabelFontSize: 10, catAxisLabelFontFace: '+mn-lt', catAxisOrientation: 'maxMin',
     valAxisHidden: true, valGridLine: { style: 'none' }, catGridLine: { style: 'none' }, showLegend: false, varyColors: true, objectName: 'sources chart',
   })
   s.addText(SRC_TAKEAWAY, { x: 4.9, y: 4.35, w: 4.6, h: 0.7, fontSize: 12, bold: true, color: C.text2, margin: 0, valign: 'top', isTextBox: true, objectName: 'sources takeaway' })
-  s.addNotes('Ведущий (25 с): Источники: api/reports/sources_effect.md — прогноз на 30 дней сравнивается с «как было на самом деле». 1С и банк в прототипе — загрузка выгрузок (в демо тестовые файлы), реестры — демонстрационная проверка по ИНН, налоговый календарь считается по выписке.')
+  s.addNotes('Ведущий (20 с): Это наша синтетическая компания с известным будущим (api/reports/sources_effect.md). Честно: работает частично — налоговый календарь считается по выписке, банк и 1С — на тестовых выгрузках, реестры — демонстрационная проверка по ИНН.')
 
   s = content('Данные и подход')
   s.addText('Как строим прогноз', { placeholder: 'title' })
   const pipe = [
     [fa.FaFileCsv, 'Выписка', 'дубли, пропуски, BOM, «;», ИНН строкой'],
     [fa.FaTags, 'Категории', 'правила + обучение на операциях самой компании'],
-    [fa.FaRotate, 'Регулярные платежи', 'зарплата, аренда, ЕНП, кредиты, дивиденды'],
-    [fa.FaDiceFive, 'Монте-Карло', '2 000 вариантов будущего: задержки оплат, колебания выручки'],
+    [fa.FaRotate, 'Регулярные платежи', 'зарплата, аренда, ЕНП 28-го, кредиты'],
+    [fa.FaDiceFive, 'Монте-Карло', '2 000 вариантов будущего; остальное сжимаем к текущему остатку'],
     [fa.FaTriangleExclamation, 'Риски', 'дата, сумма, вероятность, причина и действия'],
   ]
   const pw = 1.68
@@ -216,25 +217,25 @@ const SRC_TAKEAWAY = 'Только по выписке разрыв 5 ноябр
   }
   s.addText([
     { text: 'Результат: ', options: { bold: true } },
-    { text: 'остаток по дням — ожидаемый (P50) и возможный диапазон (P10–P90). Два вида риска: разрыв ниже 0 ₽ и остаток ниже комфортного минимума. Без утечки из будущего (тест) и без подгонки под компании.' },
+    { text: 'остаток по дням — ожидаемый (P50) и возможный диапазон (P10–P90): известные платежи с датами, остальные потоки — ближе к «остаток не изменится». Два вида риска: ниже 0 ₽ и ниже комфортного минимума. Без утечки из будущего (тест) и без подгонки под компании.' },
   ], { x: 0.5, y: 3.95, w: 9.0, h: 1.0, fontSize: 13, color: C.text1, margin: 0, valign: 'top', isTextBox: true, objectName: 'pipe result' })
-  s.addNotes('Ведущий (20 с): Модель объяснимая: каждая сумма в причине подписана источником. Прогноз детерминированный, работает без сети, на 150 компаниях — около 30 секунд.')
+  s.addNotes('Ведущий (20 с): Модель объяснимая: каждая сумма в причине подписана источником. Прогноз детерминированный, работает без сети, на 150 компаниях — около 25 секунд.')
 
   s = content('Данные и подход')
-  s.addText('Проверка качества: честный бэктест', { placeholder: 'title' })
-  stat(s, 0.5, 1.15, 2.9, Q.mae + '%', 'ошибка остатка на 30 дней; у наивной модели ' + Q.maeNaive + '%', C.accent2, 'mae')
-  stat(s, 0.5, 2.45, 2.9, Q.cov + '%', 'дней факт внутри «возможного диапазона» (цель 80%)', C.accent2, 'coverage')
-  stat(s, 0.5, 3.75, 2.9, Q.recall + '%', 'разрывов найдено заранее, в среднем за ' + Q.lead + ' дней', C.accent3, 'recall')
-  s.addChart(pres.charts.BAR, [{ name: 'Ошибка остатка, % оборота', labels: ['Наивная (повтор 28 дней)', 'Сезонная (ETS)', 'Наш гибрид'], values: [Q.maeNaive, Q.maeEts, Q.mae] }], {
-    x: 3.7, y: 1.1, w: 5.8, h: 2.9, barDir: 'col', chartColors: ['7A8A80', '7A8A80', '11553F'], varyColors: true,
-    showTitle: true, title: 'Ошибка остатка на 30 дней, % месячного оборота (меньше — лучше)', titleFontSize: 12, titleColor: HEX.text, titleFontFace: '+mn-lt',
-    showValue: true, dataLabelPosition: 'outEnd', dataLabelFormatCode: '0"%"', dataLabelFontSize: 12, dataLabelColor: HEX.text, dataLabelFontFace: '+mn-lt',
-    catAxisLabelColor: HEX.text2, catAxisLabelFontSize: 11, catAxisLabelFontFace: '+mn-lt', valAxisHidden: true, valAxisMinVal: 0,
+  s.addText('Сравнение с «остаток не изменится»', { placeholder: 'title' })
+  stat(s, 0.5, 1.15, 2.9, Q.better + '%', 'компаний: прогноз точнее, чем «остаток не изменится»', C.accent2, 'better')
+  stat(s, 0.5, 2.45, 2.9, Q.mae + '%', 'ошибка фактического остатка, медиана в долях оборота; у бейзлайна ' + Q.maeFlat + '%', C.accent2, 'mae')
+  stat(s, 0.5, 3.75, 2.9, Q.recall + '%', 'разрывов найдено заранее (точность ' + Q.precision + '%), в среднем за ' + Q.lead + ' дней', C.accent3, 'recall')
+  s.addChart(pres.charts.BAR, [{ name: 'Ошибка остатка, % оборота', labels: ['Остаток не изменится', 'Наивная (повтор 28 дней)', 'Сезонная (ETS)', 'Наш прогноз'], values: [Q.maeFlatVal, Q.maeNaive, Q.maeEts, Q.maeVal] }], {
+    x: 3.7, y: 1.1, w: 5.8, h: 2.75, barDir: 'col', chartColors: ['7A8A80', '7A8A80', '7A8A80', '11553F'], varyColors: true,
+    showTitle: true, title: 'Ошибка фактического остатка, % месячного оборота (меньше — лучше)', titleFontSize: 12, titleColor: HEX.text, titleFontFace: '+mn-lt',
+    showValue: true, dataLabelPosition: 'outEnd', dataLabelFormatCode: '0.0"%"', dataLabelFontSize: 12, dataLabelColor: HEX.text, dataLabelFontFace: '+mn-lt',
+    catAxisLabelColor: HEX.text2, catAxisLabelFontSize: 10, catAxisLabelFontFace: '+mn-lt', valAxisHidden: true, valAxisMinVal: 0,
     valGridLine: { style: 'none' }, catGridLine: { style: 'none' }, showLegend: false, objectName: 'models chart',
   })
-  card(s, 3.7, 4.1, 5.8, 0.95, C.background2, 'method card')
-  s.addText(`150 компаний разделены на dev и holdout (по отраслям). Параметры — только на dev; цифры — только holdout: ${Q.n} компании, ${Q.forecasts} прогнозов на модель, rolling origin 8 × 30 дней.`, { x: 3.85, y: 4.17, w: 5.5, h: 0.8, fontSize: 11, color: C.text1, margin: 0, valign: 'middle', isTextBox: true, objectName: 'method text' })
-  s.addNotes(`Ведущий (25 с): Источник: core/reports/metrics.md, перепроверено запуском cashflow_core.evaluate. Точность предупреждений о разрыве — ${Q.precision}%: каждое второе предупреждение ложное, но пропущенный разрыв для владельца дороже.`)
+  card(s, 3.7, 3.95, 5.8, 1.1, C.background2, 'method card')
+  s.addText(`Честно: общий WAPE на ${Q.n} отложенных компаниях — ${Q.wape} против ${Q.wapeFlat} у «остаток не изменится», чуть хуже; за последние 30 дней всех 150 выписок — ${Q.ctlWape} против ${Q.ctlWapeFlat}. Поэтому прогноз — смесь модели с бейзлайном. Параметры подбирались только на dev, цифры — holdout, ${Q.forecasts} прогнозов на модель.`, { x: 3.85, y: 4.0, w: 5.5, h: 1.0, fontSize: 10.5, color: C.text1, margin: 0, valign: 'middle', isTextBox: true, objectName: 'method text' })
+  s.addNotes(`Ведущий (25 с): Жюри сравнит прогноз с фактическим остатком, поэтому главный соперник — «остаток не изменится». Наш прогноз точнее у ${Q.better}% компаний и по медиане ошибки, но по общему WAPE чуть хуже — это видно в core/reports/metrics.md. Разрывы: находим ${Q.recall}%, точность предупреждений ${Q.precision}%.`)
 
   pres.addSection({ title: 'Архитектура' })
   s = content('Архитектура')
@@ -242,7 +243,7 @@ const SRC_TAKEAWAY = 'Только по выписке разрыв 5 ноябр
   const am = await sharp(path.join(ROOT, 'docs/architecture_slide.png')).metadata()
   const ah = 3.0, aww = ah * am.width / am.height
   s.addImage({ path: path.join(ROOT, 'docs/architecture_slide.png'), x: 0.5, y: 1.15, w: aww, h: ah, objectName: 'architecture diagram' })
-  const sec = [[fa.FaKey, 'JWT, пароли PBKDF2'], [fa.FaUserShield, 'только своя компания; у гостя демо — своя копия'], [fa.FaEyeSlash, 'в логах нет ИНН, сумм, названий, токенов (тест)'], [fa.FaGaugeHigh, 'лимит запросов и размера файла'], [fa.FaLock, 'HTTPS: Caddy + Let’s Encrypt, docker-compose']]
+  const sec = [[fa.FaKey, 'JWT, пароли PBKDF2'], [fa.FaUserShield, 'общие компании — только чтение, у гостя своя копия (тест)'], [fa.FaEyeSlash, 'в логах нет ИНН, сумм, названий, токенов (тест)'], [fa.FaGaugeHigh, 'лимит запросов и размера файла'], [fa.FaLock, 'HTTPS: Caddy + docker compose, готово к запуску']]
   const sx = 0.5 + aww + 0.3, sw = 9.5 - sx
   for (let i = 0; i < sec.length; i++) {
     const y = 1.15 + i * 0.62
@@ -250,7 +251,7 @@ const SRC_TAKEAWAY = 'Только по выписке разрыв 5 ноябр
     s.addText(sec[i][1], { x: sx + 0.55, y: y - 0.02, w: sw - 0.55, h: 0.5, fontSize: 11, color: C.text1, margin: 0, valign: 'middle', isTextBox: true, objectName: 'security text ' + i })
   }
   s.addText('web (React) → API (FastAPI, SQLite, интеграции) → ядро cashflow_core (Python). Единый контракт JSON.', { x: 0.5, y: 4.4, w: 9.0, h: 0.5, fontSize: 12, color: C.text2, margin: 0, isTextBox: true, objectName: 'architecture caption' })
-  s.addNotes('Ведущий (20 с): Три части по общему контракту. Прототип открыт по HTTPS, демо — в один клик, у каждого гостя своя копия компании.')
+  s.addNotes('Ведущий (20 с): Три части по общему контракту. Запуск — одна команда docker compose с HTTPS; демо — в один клик, у каждого гостя своя копия компании, общие данные никто не испортит.')
 
   pres.addSection({ title: 'Итоги' })
   s = content('Итоги')
@@ -258,9 +259,9 @@ const SRC_TAKEAWAY = 'Только по выписке разрыв 5 ноябр
   card(s, 0.5, 1.15, 4.4, 3.9, C.background2, 'done card')
   s.addText('Работает в прототипе', { x: 0.75, y: 1.3, w: 4.0, h: 0.35, fontSize: 16, bold: true, color: C.accent2, margin: 0, isTextBox: true, objectName: 'done title' })
   s.addText([
-    { text: 'внешние события: 1С, банк, налоги, реестры', options: { bullet: true, breakLine: true } },
+    { text: '«что если»: 6 сценариев, в т.ч. потеря клиента и рост налогов', options: { bullet: true, breakLine: true } },
     { text: 'ручной ввод — формой и обычной фразой', options: { bullet: true, breakLine: true } },
-    { text: '«что если» по 4 сценариям', options: { bullet: true, breakLine: true } },
+    { text: 'источники — частично: налоговый календарь, банк и 1С на тестовых выгрузках; «было → стало»', options: { bullet: true, breakLine: true } },
     { text: 'план-факт с пересчётом прогноза', options: { bullet: true, breakLine: true } },
     { text: 'прогноз для 150 компаний одной командой', options: { bullet: true, breakLine: true } },
     { text: 'телефон, планшет, ноутбук', options: { bullet: true } },
@@ -273,12 +274,12 @@ const SRC_TAKEAWAY = 'Только по выписке разрыв 5 ноябр
     { text: 'овердрафт прямо из предупреждения', options: { bullet: true, breakLine: true } },
     { text: 'настоящие API 1С и ФНС', options: { bullet: true } },
   ], { x: 7.15, y: 1.75, w: 2.35, h: 3.2, fontSize: 12, color: C.text1, paraSpaceAfter: 5, margin: 0, valign: 'top', isTextBox: true, objectName: 'next list' })
-  s.addNotes('Ведущий (20 с): Все звёздочки на слайде работают в прототипе — их можно проверить по ссылке. Дальше — встроить в интернет-банк: выписка у банка уже есть.')
+  s.addNotes('Ведущий (10 с): «Что если», план-факт и ручной ввод работают полностью; источники — частично, на тестовых выгрузках. Дальше — встроить в интернет-банк: выписка у банка уже есть.')
 
   s = pres.addSlide({ masterName: 'DARK', sectionTitle: 'Итоги' })
   s.addText('Предупреждаем о разрыве заранее и говорим, что делать', { placeholder: 'title' })
-  s.addText(`Прогноз на 30+ дней по дням · дата, сумма и вероятность разрыва · ошибка ${Q.mae}% против ${Q.maeNaive}% у наивной модели · реальный разрыв 30.09.2025 — за 14 дней`, { placeholder: 'body' })
-  s.addNotes('Ведущий (10 с): Спасибо! Прототип открыт по ссылке — нажмите «Посмотреть демо».')
+  s.addText(`Прогноз на 30+ дней по дням · дата, сумма и вероятность разрыва · точнее «остаток не изменится» у ${Q.better}% компаний · реальный разрыв 30.09.2025 — за 14 дней`, { placeholder: 'body' })
+  s.addNotes('Ведущий (10 с): Спасибо! Готовы ответить на вопросы.')
 
   await pres.writeFile({ fileName: OUT })
   await applyTheme(OUT, THEME)
