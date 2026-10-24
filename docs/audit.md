@@ -12,7 +12,7 @@
 | web | `npm run lint` (oxlint) | ✅ 0 ошибок, 11 предупреждений |
 | api + core | `uvicorn api.main:app` → `/api/health` | ✅ `{"status":"ok","core":"cashflow_core 0.1.0"}` |
 | core CLI | `python -m cashflow_core.predict --help`, `... evaluate --help` | ✅ есть, параметры `--horizon --out --seed --sims --workers` / `--workers --ids --origins ...` |
-| отчёты | `core/reports/` | ✅ `metrics.json/md` (holdout 73 компании), `split.json`, `evaluate_dev/holdout`, `calibration.json` |
+| отчёты | `core/reports/` | ✅ `metrics.json/md` (holdout 73 компании), `split.json`, `evaluate_raw` (dev/holdout), `control_raw`, `shrink.json`, `calibration.json` (обновлено после проверки 24.10 — см. `docs/verification_report.md`) |
 
 ### Сквозная проверка API на компаниях из `data/raw/`
 Загрузка выписки (`POST /companies`) → прогноз → `alerts`, `categories`, `recurring`, `events`, `plan-fact`, сценарий `revenue_drop`, синхронизация 4 источников → повторный прогноз:
@@ -85,6 +85,6 @@
 | детерминированность | два прогона подряд | ✅ CSV и JSON побайтно совпадают (md5) |
 | короткая история | C049 (68 операций), C068 (81, овердрафт) | ✅ прогноз есть, в warnings «История короче 3 месяцев…» |
 | `evaluate` | `python -m cashflow_core.evaluate data/raw --ids C001,C049,C068,C122` | ✅ 3 модели, без сбоев, 6 с |
-| честность метрик | `core/reports/split.json`: dev 77 / holdout 73, пересечение 0; `calibration.json`: k = 1,45 подобран на 77 dev-компаниях; `metrics_detail.json`: 73 компании, все из holdout; rolling origin 8 отсечек × 30 дн., 3 модели | ✅ |
+| честность метрик | `core/reports/split.json`: dev 77 / holdout 73, пересечение 0; `calibration.json`: k подобран на 77 dev-компаниях (сейчас 1,25 — по фактическому остатку); `metrics.md`: 73 компании, все из holdout; rolling origin 8 отсечек × 30 дн., 3 модели | ✅ |
 
 **Исправлено:** `cashflow_core.predict` и `api.predict` писали CSV по-разному (запятая / «;», разное число знаков). По решению тимлида — единый формат `company_id;date;balance_forecast;balance_low;balance_high`, суммы с двумя знаками; на C001, C049, C068 файлы обеих команд совпадают побайтно.

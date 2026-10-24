@@ -26,15 +26,17 @@ python -m cashflow_core.predict data/raw/all_operations.csv --horizon 30 --out p
 #   predictions.json: по компаниям — as_of, current_balance, comfort_balance,
 #                     risks [{kind: gap|below_comfort, date, shortfall_amount, probability, severity, reason}], warnings, status
 
-# качество на ЛЮБОМ датасете в формате организаторов (папка со statements/*.csv или один CSV)
-python -m cashflow_core.evaluate data/raw --workers 4          # → core/reports/evaluate_raw.{json,md}
+# качество на ЛЮБОМ датасете в формате организаторов (папка со statements/*.csv или один CSV):
+# 4 подхода («остаток не изменится», наивный, сезонный, гибрид), ошибка по фактическому balance_eod
+python -m cashflow_core.evaluate data/raw --workers 4 --split core/reports/split.json --name raw   # → core/reports/evaluate_raw.{json,md}
 python -m cashflow_core.evaluate /путь/к/новому/all_operations.csv --workers 8
 
-# наш конвейер на датасете организаторов (dev/holdout)
-python -m cashflow_core.report split        # core/reports/split.json
-python -m cashflow_core.report calibrate    # подбор множителя интервалов только на dev
-python -m cashflow_core.report final        # метрики только holdout → metrics.json/md, errors.png
-python -m cashflow_core.report rebuild      # пересобрать файлы отчёта из metrics_detail.json
+# имитация контрольного датасета: последние 30 дней каждой выписки — факт, прогноз как у predict
+python -m cashflow_core.control data/raw --workers 4 --split core/reports/split.json --name raw    # → core/reports/control_raw.{json,md}
+
+# отчёт для слайдов и экрана «Качество» из двух прогонов выше (цифры holdout)
+python -m cashflow_core.report publish      # → metrics.json (формат контракта), metrics.md, errors.png
+python -m cashflow_core.report split        # разбиение dev/holdout (core/reports/split.json)
 ```
 
 ## API (контракт)
@@ -151,14 +153,19 @@ state, res = update_forecast(state, new_rows)                     # новые �
   формата (продуктовая конфигурация, без подгонки) и сохраняет MAE/WAPE остатка, ошибку потоков, покрытие
   интервалов, precision/recall разрывов, срок предупреждения, точность регулярных платежей, время и сбои в
   `core/reports/evaluate_<имя>.{json,md}`. Кэш по содержимому выписки — прерванный прогон досчитывается.
-* Итог на 73 holdout-компаниях (542 прогноза на модель): ошибка остатка гибрида 16% месячного оборота
-  (сезонная 19%, наивная 21%), покрытие P10–P90 80,3% при норме 80% (k = 1,45 подобран на dev), разрывы:
-  recall 72%, precision 46%, предупреждение за 14 дн. (медиана). Подробно — `core/reports/metrics.md`.
+* **Цель — фактический остаток.** Ошибка P50 считается относительно `balance_eod`; рядом — бейзлайн
+  «остаток не изменится». Прогноз «как есть» ему проигрывал, поэтому финальный P50 — смесь: платежи по
+  расписанию (регулярные, налоги) сохраняются полностью, остаточные потоки сжимаются к текущему остатку
+  (`schema.SHRINK_SHAPE`, `SHRINK_DRIFT`, подобраны на dev — `core/reports/shrink.json`), интервал
+  откалиброван на dev по фактическому остатку (`INTERVAL_SCALE` = 1,25, `calibration.json`).
+* Итог на 73 holdout-компаниях — `core/reports/metrics.md`: по общему WAPE модель немного хуже бейзлайна,
+  по медиане относительной ошибки — лучше, точнее бейзлайна у большинства компаний (цифры и оговорки — там же).
 * Скорость (2 ядра): прогноз компании ~1,8 с; бэктест компании (8 отсечек × 3 модели) ~14 с;
   `evaluate` по 73 компаниям — 9 мин, по всем 150 — ~18–20 мин. Рабочие процессы ограничены одним потоком
   (`parallel.py`), иначе потоки бустинга «дерутся» за ядра и всё замедляется в десятки раз.
-* Файлы: `metrics.md` (таблица для слайда и методика), `metrics.json` (раздел 5 контракта),
-  `metrics_detail.json`, `errors.png`, `calibration.json`, `evaluate_dev.*`, `evaluate_holdout.*`.
+* Файлы: `metrics.md` (таблица для слайда и методика), `metrics.json` (раздел 5 контракта), `errors.png`,
+  `evaluate_raw.*` (rolling origin, все / dev / holdout), `control_raw.*` (последние 30 дней), `shrink.json`,
+  `calibration.json`, `split.json`.
 
 ## predict — прогноз без интерфейса
 

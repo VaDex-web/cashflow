@@ -1,0 +1,55 @@
+{
+  "what": "Сжатие прогноза к текущему остатку: p50 = остаток + K(h) + SHAPE·(R(h) − R_лин(h)) + (DRIFT·d(30) − K(30))·h/30; K — платежи по расписанию (регулярные, налоги), R — остаточные потоки с поправками на прошлые ошибки.",
+  "tuned_on": "dev (77 компаний), rolling origin 8 × 30 дн., цель — WAPE и медиана ошибки по фактическому остатку",
+  "chosen": {
+    "SHRINK_SHAPE": 0.5,
+    "SHRINK_DRIFT": 0.05,
+    "SHRINK_SHORT": 0.0
+  },
+  "search_dev": [
+    {
+      "variant": "без сжатия",
+      "wape": 0.3745,
+      "flat": 0.3066,
+      "median_company_wape": 0.329,
+      "share_better": 0.227
+    },
+    {
+      "variant": "p50 = остаток + w·(модель − остаток), w = 0.2",
+      "wape": 0.3029,
+      "median_company_wape": 0.2495,
+      "share_better": 0.693
+    },
+    {
+      "variant": "w по дням (0.3/0.2/0.2/0.05 на 1/7/14/30)",
+      "wape": 0.303,
+      "median_company_wape": 0.2805,
+      "share_better": 0.747
+    },
+    {
+      "variant": "форма 0.5 + дрейф 0.05 (выбрано по сумме WAPE и медианы)",
+      "wape": 0.3011,
+      "median_company_wape": 0.2645,
+      "share_better": 0.627
+    },
+    {
+      "variant": "форма 0.4 + дрейф 0.05 (лучший WAPE)",
+      "wape": 0.3003,
+      "median_company_wape": 0.274,
+      "share_better": 0.68
+    }
+  ],
+  "note": "Подбор шёл по P50 всей модели; в продукте платежи по расписанию сохраняются полностью (иначе пропадают провалы в дни зарплаты и налогов), сжимаются только остаточные потоки. Итоговые цифры этой конфигурации — evaluate_raw.json.",
+  "final_rolling_origin": {
+    "dev": {
+      "hybrid_wape": 0.3065,
+      "flat_wape": 0.3069,
+      "share_better": 0.5467
+    },
+    "holdout": {
+      "hybrid_wape": 0.2631,
+      "flat_wape": 0.2533,
+      "share_better": 0.6111
+    }
+  }
+}
