@@ -11,7 +11,7 @@ async function precheck(file: File): Promise<string | null> {
   if (file.size === 0) return 'Файл пустой.'
   if (file.size > MAX_MB * 1024 * 1024) return `Файл больше ${MAX_MB} МБ. Выгрузите выписку за меньший период.`
   const head = (await file.slice(0, 4096).text()).split(/\r?\n/)[0] ?? ''
-  if (head.includes('�')) return 'Файл в неподдерживаемой кодировке. Сохраните его в UTF-8 (в Excel: «Сохранить как» → «CSV UTF-8»).'
+  if (head.includes('\uFFFD')) return 'Файл в неподдерживаемой кодировке. Сохраните его в UTF-8 (в Excel: «Сохранить как» → «CSV UTF-8»).'
   if (!/[;,\t]/.test(head)) return 'Не удалось найти столбцы. В первой строке должны быть названия колонок, разделённые запятой или точкой с запятой.'
   const h = head.toLowerCase()
   if (!/(date|дата)/.test(h)) return `Не нашли колонку с датой. Нужны колонки: ${REQUIRED_HINT}.`
@@ -56,7 +56,7 @@ export function Upload() {
   }
 
   return (
-    <div style={{ maxWidth: 720 }}>
+    <div style={{ maxWidth: 740 }}>
       <div className="page-head">
         <div>
           <h1>Загрузите выписку по счёту</h1>
@@ -66,40 +66,112 @@ export function Upload() {
 
       <div
         className="card"
-        onDragOver={(e) => { e.preventDefault(); setDrag(true) }}
+        onDragOver={(e) => {
+          e.preventDefault()
+          setDrag(true)
+        }}
         onDragLeave={() => setDrag(false)}
         onDrop={onDrop}
         onClick={() => input.current?.click()}
         role="button"
         tabIndex={0}
-        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') input.current?.click() }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') input.current?.click()
+        }}
         style={{
-          borderStyle: 'dashed', borderWidth: 2, borderColor: drag ? 'var(--lime-600)' : 'var(--border)',
-          background: drag ? 'var(--lime-100)' : 'var(--surface)', textAlign: 'center', padding: '44px 20px', cursor: 'pointer',
+          borderStyle: 'dashed',
+          borderWidth: 2,
+          borderColor: drag ? 'var(--primary)' : file ? 'var(--primary)' : 'var(--border)',
+          background: drag ? 'var(--primary-65)' : file ? 'var(--surface-subtle)' : 'var(--surface)',
+          textAlign: 'center',
+          padding: '48px 24px',
+          cursor: 'pointer',
+          borderRadius: 'var(--radius-xl)',
+          transition: 'all 0.15s ease-in-out',
         }}
       >
-        <div style={{ fontSize: 40 }}>📄</div>
-        <h2 style={{ margin: '10px 0 6px' }}>{file ? file.name : 'Перетащите сюда файл выписки'}</h2>
-        <p className="muted">{file ? `${(file.size / 1024).toFixed(0)} КБ` : 'или нажмите, чтобы выбрать файл · формат CSV'}</p>
+        <div
+          style={{
+            width: 56,
+            height: 56,
+            borderRadius: '50%',
+            background: file ? 'var(--primary-60)' : 'var(--surface-subtle)',
+            color: file ? 'var(--primary-active)' : 'var(--text-2)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            margin: '0 auto 16px',
+          }}
+        >
+          {file ? (
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+              <polyline points="14 2 14 8 20 8" />
+              <path d="m9 15 2 2 4-4" />
+            </svg>
+          ) : (
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <polyline points="17 8 12 3 7 8" />
+              <line x1="12" y1="3" x2="12" y2="15" />
+            </svg>
+          )}
+        </div>
+
+        <h2 style={{ margin: '0 0 8px', fontSize: 18, color: 'var(--text)' }}>
+          {file ? file.name : 'Перетащите сюда файл выписки'}
+        </h2>
+        <p className="muted" style={{ margin: 0, fontSize: 14 }}>
+          {file ? (
+            <span style={{ color: 'var(--primary-active)', fontWeight: 600 }}>
+              {(file.size / 1024).toFixed(0)} КБ · Готов к обработке
+            </span>
+          ) : (
+            'или нажмите для выбора файла · формат CSV / TXT'
+          )}
+        </p>
         <input ref={input} type="file" accept=".csv,.txt,text/csv" hidden onChange={(e) => void handle(e.target.files?.[0])} />
       </div>
 
-      {error && <div className="notice notice-err" style={{ marginTop: 14 }} role="alert"><span>⚠️</span><span>{error}</span></div>}
+      {error && (
+        <div className="notice notice-err" style={{ marginTop: 16, display: 'flex', alignItems: 'center', gap: 10 }} role="alert">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+            <circle cx="12" cy="12" r="10" />
+            <line x1="12" y1="8" x2="12" y2="12" />
+            <line x1="12" y1="16" x2="12.01" y2="16" />
+          </svg>
+          <span>{error}</span>
+        </div>
+      )}
 
-      <div className="row" style={{ marginTop: 16 }}>
+      <div className="row" style={{ marginTop: 20, gap: 12 }}>
         <button className="btn btn-lime" disabled={!file || !!error || busy} onClick={send}>
-          {busy ? 'Считаем прогноз…' : 'Построить прогноз'}
+          {busy ? 'Построение прогноза…' : 'Построить прогноз'}
         </button>
-        {companyId && <button className="btn btn-ghost" onClick={() => nav('/')}>Вернуться к прогнозу</button>}
+        <button
+          type="button"
+          className="btn btn-ghost"
+          onClick={() => {
+            setCompany('demo-yuzhny-vkus')
+            nav('/')
+          }}
+        >
+          Загрузить демо-данные
+        </button>
+        {companyId && (
+          <button className="btn btn-ghost" onClick={() => nav('/')}>
+            Вернуться к прогнозу
+          </button>
+        )}
       </div>
 
-      <div className="card" style={{ marginTop: 24 }}>
-        <h3>Какой файл подойдёт</h3>
-        <ul className="small muted" style={{ margin: '8px 0 0', paddingLeft: 18, display: 'grid', gap: 4 }}>
-          <li>Выписка из интернет-банка в формате CSV, лучше всего — за 3–6 месяцев.</li>
-          <li>Колонки: {REQUIRED_HINT}. Названия могут отличаться — мы разберёмся.</li>
-          <li>Сумма может быть со знаком «минус» для списаний — это тоже нормально.</li>
-          <li>Дубли и пустые строки мы уберём сами.</li>
+      <div className="card" style={{ marginTop: 24, padding: '22px 24px' }}>
+        <h3 style={{ fontSize: 16, marginBottom: 12 }}>Требования к выписке</h3>
+        <ul className="small muted" style={{ margin: 0, paddingLeft: 18, display: 'grid', gap: 6, lineHeight: 1.5 }}>
+          <li>Стандартная выписка из интернет-банка в формате CSV (оптимально за 3–6 месяцев).</li>
+          <li>Обязательные поля: {REQUIRED_HINT}. Названия колонок могут варьироваться — сервис распознает их автоматически.</li>
+          <li>Сумма может быть со знаком «минус» для списаний — это обрабатывается корректно.</li>
+          <li>Повторные строки и пустые разделители фильтруются системой автоматически.</li>
         </ul>
       </div>
     </div>
