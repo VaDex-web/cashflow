@@ -6,12 +6,27 @@ import { useSession } from '../lib/session'
 const MAX_MB = 20
 const REQUIRED_HINT = 'дата, сумма, направление (поступление/списание), контрагент, ИНН, назначение платежа, остаток'
 
+async function readCsvChunk(file: File, bytes = 8192): Promise<string> {
+  const slice = file.slice(0, bytes)
+  const buf = await slice.arrayBuffer()
+  try {
+    const dec = new TextDecoder('utf-8', { fatal: true })
+    return dec.decode(buf, { stream: true }).replace(/^\ufeff/, '')
+  } catch {
+    try {
+      const dec = new TextDecoder('windows-1251')
+      return dec.decode(buf).replace(/^\ufeff/, '')
+    } catch {
+      return new TextDecoder('utf-8').decode(buf).replace(/^\ufeff/, '')
+    }
+  }
+}
+
 async function precheck(file: File): Promise<string | null> {
   if (!/\.(csv|txt)$/i.test(file.name)) return `Файл «${file.name}» не похож на CSV. Выгрузите выписку из интернет-банка в формате CSV.`
   if (file.size === 0) return 'Файл пустой.'
   if (file.size > MAX_MB * 1024 * 1024) return `Файл больше ${MAX_MB} МБ. Выгрузите выписку за меньший период.`
-  const head = (await file.slice(0, 4096).text()).split(/\r?\n/)[0] ?? ''
-  if (head.includes('\uFFFD')) return 'Файл в неподдерживаемой кодировке. Сохраните его в UTF-8 (в Excel: «Сохранить как» → «CSV UTF-8»).'
+  const head = (await readCsvChunk(file)).split(/\r?\n/)[0] ?? ''
   if (!/[;,\t]/.test(head)) return 'Не удалось найти столбцы. В первой строке должны быть названия колонок, разделённые запятой или точкой с запятой.'
   const h = head.toLowerCase()
   if (!/(date|дата)/.test(h)) return `Не нашли колонку с датой. Нужны колонки: ${REQUIRED_HINT}.`

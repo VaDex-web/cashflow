@@ -1,7 +1,8 @@
 import type { ReactNode } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
-import { USE_MOCK } from '../api/client'
+import { api, USE_MOCK } from '../api/client'
 import { useSession } from '../lib/session'
+import { useAsync } from '../lib/useAsync'
 
 interface NavItem {
   to: string
@@ -115,6 +116,10 @@ function Brand() {
 
 export function Layout() {
   const { logout, companyId } = useSession()
+  const me = useAsync(() => (companyId ? api.me() : Promise.resolve(null)), [companyId])
+  const companyTitle = companyId
+    ? me.data?.company_name || `Компания ${companyId.split('-')[0].toUpperCase()}`
+    : 'Счёт не выбран'
 
   return (
     <div className="app">
@@ -123,15 +128,11 @@ export function Layout() {
 
         <div className="sidebar-company-card">
           <div className="sidebar-company-avatar">
-            {companyId ? companyId.replace('demo-', '').slice(0, 1).toUpperCase() : 'Б'}
+            {companyTitle.replace(/^(ООО|ИП|АО|ПАО|Компания)\s*[«"]?/i, '').slice(0, 1).toUpperCase() || 'К'}
           </div>
           <div className="sidebar-company-info">
-            <div className="sidebar-company-name">
-              {companyId
-                ? companyId === 'demo-yuzhny-vkus'
-                  ? 'ООО «Южный Вкус»'
-                  : `Компания ${companyId}`
-                : 'Счёт не выбран'}
+            <div className="sidebar-company-name" title={companyTitle}>
+              {companyTitle}
             </div>
             <div className="sidebar-company-status">
               {companyId ? 'Расчётный счёт активен' : 'Ожидает загрузки выписки'}

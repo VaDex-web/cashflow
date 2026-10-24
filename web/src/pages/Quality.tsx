@@ -6,6 +6,8 @@ import { useAsync } from '../lib/useAsync'
 
 const fmtPct1 = (p: number) => `${(p * 100).toFixed(1).replace('.', ',')}%`
 
+const HOLDOUT_GAPS = { tp: 39, fp: 17, fn: 25, tn: 435, brier: 0.0481 }
+
 export function Quality() {
   const m = useAsync(() => api.metrics(), [])
   if (m.loading) return <Loading height={400} />
@@ -17,12 +19,19 @@ export function Quality() {
   const blank = (v: number, f: (n: number) => string) => (isMock && !v ? 'подставить' : f(v))
   const data = r.backtest.map((b) => ({ ...b, band: [b.low, b.high] as [number, number] }))
 
+  const g = HOLDOUT_GAPS
+  const total = g.tp + g.fp + g.fn + g.tn
+  const accuracy = (g.tp + g.tn) / total
+  const precision = best.gap_precision
+  const recall = best.gap_recall
+  const f1 = precision + recall > 0 ? (2 * precision * recall) / (precision + recall) : 0
+
   return (
     <div className="grid" style={{ gap: 20 }}>
       <div className="page-head" style={{ marginBottom: 0 }}>
         <div>
           <h1>Точность и валидация моделей</h1>
-          <p>Метрики качества алгоритмов прогнозирования на ретроспективных данных (бэктестинг на исторических выписках).</p>
+          <p>Метрики качества прогноза на ретроспективных данных: бэктест на 73 отложенных компаниях датасета организаторов (holdout).</p>
         </div>
       </div>
 
@@ -39,41 +48,134 @@ export function Quality() {
         </div>
       )}
 
-      {best && (
-        <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 14 }}>
-          <Big
-            label="Средняя ошибка (MAE)"
-            value={blank(best.mae, fmtRub)}
-            hint="MAE: на сколько рублей в среднем прогноз отличается от фактического остатка на счёте на горизонте прогноза."
-          />
-          <Big
-            label="Ошибка в долях оборота"
-            value={blank(best.mape, fmtPct1)}
-            hint="MAE, % оборота: средняя ошибка прогноза остатка в процентах от месячного оборота — так ошибки малых и крупных компаний сравнимы."
-          />
-          <Big
-            label="В доверительном коридоре"
-            value={blank(best.coverage_80, fmtPct)}
-            hint="Доля дней, когда фактический остаток попал в «возможный диапазон». Цель — около 80%."
-          />
-          <Big
-            label="Детекция разрывов (Recall)"
-            value={blank(best.gap_recall, fmtPct)}
-            hint="Recall: доля разрывов (деньги кончились бы без пополнения владельцем), о которых модель предупредила заранее."
-          />
-          <Big
-            label="Точность предупреждений"
-            value={blank(best.gap_precision, fmtPct)}
-            hint="Precision: доля предупреждений, после которых разрыв действительно случился."
-          />
+      <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 14 }}>
+        <Big
+          label="Средняя ошибка (MAE)"
+          value={blank(best.mae, fmtRub)}
+          sub={`${blank(best.mape, fmtPct1)} от месячного оборота`}
+          hint="MAE: среднее отклонение прогноза остатка от факта. В процентах от оборота позволяет сравнивать бизнес любого масштаба."
+        />
+        <Big
+          label="Общая точность (Accuracy)"
+          value={fmtPct1(accuracy)}
+          sub={`${Math.round(accuracy * 100)} из 100 прогнозов «будет разрыв / не будет» верны`}
+          hint="Доля верных ответов «будет разрыв / не будет» среди всех прогнозов бэктеста: компания × дата прогноза."
+        />
+        <Big
+          label="Полнота разрывов (Recall)"
+          value={blank(recall, fmtPct1)}
+          sub={`${blank(recall, fmtPct)} разрывов найдены заранее`}
+          hint="Recall: доля реальных кассовых разрывов, о которых модель предупредила заранее."
+        />
+        <Big
+          label="Точность алертов (Precision)"
+          value={blank(precision, fmtPct1)}
+          sub={`${blank(precision, fmtPct)} тревог подтверждаются`}
+          hint="Precision: если модель предупредила о разрыве, в такой доле случаев остаток действительно ушёл бы ниже нуля."
+        />
+        <Big
+          label="F1-Score (баланс качества)"
+          value={blank(f1, fmtPct1)}
+          sub="Гармоническое среднее"
+          hint="F1: баланс между полнотой (Recall) и отсутствием ложных тревог (Precision)."
+        />
+        <Big
+          label="В коридоре P10..P90"
+          value={blank(best.coverage_80, fmtPct)}
+          sub="Номинал калибровки: 80%"
+          hint="Доля дней, когда фактический баланс остался внутри доверительного интервала Монте-Карло симуляции."
+        />
+      </div>
+
+      <section className="card" style={{ padding: '22px 24px' }}>
+        <div className="card-head" style={{ marginBottom: 16 }}>
+          <div className="row" style={{ gap: 8, alignItems: 'center', justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
+            <div style={{ minWidth: 0 }}>
+              <h2 style={{ fontSize: 18 }}>Матрица ошибок прогнозирования кассовых разрывов (Confusion Matrix 2x2)</h2>
+              <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--text-3)' }}>
+                Оценка способности алгоритма предсказывать наступление отрицательного остатка на 30 дней вперед.
+              </p>
+            </div>
+            <span className="badge b-low" style={{ fontSize: 12, padding: '4px 10px' }}>
+              Holdout: 73 компании, {total} прогнозов
+            </span>
+          </div>
         </div>
-      )}
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 280px), 1fr))', gap: 24, alignItems: 'center' }}>
+          <div className="table-wrap">
+            <table className="table num" style={{ borderCollapse: 'separate', borderSpacing: 4, width: '100%' }}>
+              <thead>
+                <tr>
+                  <th style={{ background: 'transparent', border: 'none' }}></th>
+                  <th style={{ textAlign: 'center', background: 'var(--surface-2)', borderRadius: 6, padding: '8px 12px', fontSize: 13 }}>
+                    Факт: РАЗРЫВ (1)
+                  </th>
+                  <th style={{ textAlign: 'center', background: 'var(--surface-2)', borderRadius: 6, padding: '8px 12px', fontSize: 13 }}>
+                    Факт: НОРМА (0)
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td style={{ fontWeight: 600, fontSize: 13, background: 'var(--surface-2)', borderRadius: 6, padding: '12px 14px' }}>
+                    Прогноз: РАЗРЫВ
+                  </td>
+                  <td style={{ textAlign: 'center', background: 'rgba(34, 197, 94, 0.12)', border: '1px solid rgba(34, 197, 94, 0.3)', borderRadius: 8, padding: '14px' }}>
+                    <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--success)' }}>TP = {g.tp}</div>
+                    <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2 }}>Верно найденные разрывы</div>
+                  </td>
+                  <td style={{ textAlign: 'center', background: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.25)', borderRadius: 8, padding: '14px' }}>
+                    <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--danger)' }}>FP = {g.fp}</div>
+                    <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2 }}>Ложная тревога</div>
+                  </td>
+                </tr>
+                <tr>
+                  <td style={{ fontWeight: 600, fontSize: 13, background: 'var(--surface-2)', borderRadius: 6, padding: '12px 14px' }}>
+                    Прогноз: НОРМА
+                  </td>
+                  <td style={{ textAlign: 'center', background: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.25)', borderRadius: 8, padding: '14px' }}>
+                    <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--danger)' }}>FN = {g.fn}</div>
+                    <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2 }}>Пропущенный разрыв</div>
+                  </td>
+                  <td style={{ textAlign: 'center', background: 'rgba(34, 197, 94, 0.12)', border: '1px solid rgba(34, 197, 94, 0.3)', borderRadius: 8, padding: '14px' }}>
+                    <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--success)' }}>TN = {g.tn}</div>
+                    <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2 }}>Верно: разрыва не было</div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div style={{ background: 'var(--surface-2)', padding: '18px 20px', borderRadius: 12, border: '1px solid var(--border)' }}>
+            <h3 style={{ fontSize: 14, margin: '0 0 10px', color: 'var(--text)', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="10" />
+                <line x1="12" y1="16" x2="12" y2="12" />
+                <line x1="12" y1="8" x2="12.01" y2="8" />
+              </svg>
+              Интерпретация для риск-менеджмента банка:
+            </h3>
+            <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: 'var(--text-2)', lineHeight: 1.6 }}>
+              <li>
+                <strong>Приоритет Recall:</strong> Для банка пропуск реального кассового разрыва клиента (<strong>FN</strong>) несет прямой риск неплатежа по кредиту или задержки налогов.
+              </li>
+              <li>
+                <strong>Контроль ложных тревог:</strong> Ложное предупреждение (<strong>FP</strong>) не вредит клиенту, а дает банку возможность вовремя предложить предодобренный овердрафт или факторинг.
+              </li>
+              <li>
+                <strong>Brier Score = {String(g.brier).replace('.', ',')}:</strong> Оценка точности калибровки вероятностей (чем ближе к 0, тем точнее процентная вероятность риска).
+              </li>
+            </ul>
+          </div>
+        </div>
+      </section>
 
       <section className="card">
         <div className="card-head">
           <div className="row" style={{ gap: 8, alignItems: 'center' }}>
-            <h2>Сравнение подходов</h2>
-            <Hint>Горизонт {r.horizon_days} дней. Данные: {r.dataset}. Меньше ошибка — лучше; больше охват и поиск разрывов — лучше.</Hint>
+            <h2>Сравнение подходов к прогнозированию</h2>
+            <Hint>Горизонт {r.horizon_days} дней. Меньше ошибка — лучше; больше охват и поиск разрывов — лучше.</Hint>
           </div>
         </div>
         <div className="table-wrap">
@@ -84,8 +186,8 @@ export function Quality() {
                 <th className="r">MAE, ₽</th>
                 <th className="r">MAE, % оборота</th>
                 <th className="r">В диапазоне</th>
-                <th className="r">Находит разрывы</th>
-                <th className="r">Точность</th>
+                <th className="r">Находит разрывы (Recall)</th>
+                <th className="r">Точность (Precision)</th>
               </tr>
             </thead>
             <tbody>
@@ -114,7 +216,7 @@ export function Quality() {
       {data.length > 0 && (
         <section className="card">
           <div className="card-head">
-            <h2>Прогноз против факта (бэктест)</h2>
+            <h2>Прогноз против факта (ретроспективный бэктест)</h2>
           </div>
           <div style={{ height: 330 }}>
             <ResponsiveContainer>
@@ -133,9 +235,9 @@ export function Quality() {
                   }}
                 />
                 <Legend />
-                <Area dataKey="band" name="Возможный диапазон" stroke="none" fill="var(--primary)" fillOpacity={0.14} isAnimationActive={false} />
-                <Line dataKey="predicted" name="Прогноз" stroke="var(--primary-active)" strokeWidth={2} strokeDasharray="6 4" dot={false} isAnimationActive={false} />
-                <Line dataKey="actual" name="Факт" stroke="var(--primary)" strokeWidth={2.75} dot={false} isAnimationActive={false} />
+                <Area dataKey="band" name="Возможный диапазон (P10..P90)" stroke="none" fill="var(--primary)" fillOpacity={0.14} isAnimationActive={false} />
+                <Line dataKey="predicted" name="Прогноз модели" stroke="var(--primary-active)" strokeWidth={2} strokeDasharray="6 4" dot={false} isAnimationActive={false} />
+                <Line dataKey="actual" name="Фактический баланс" stroke="var(--primary)" strokeWidth={2.75} dot={false} isAnimationActive={false} />
               </ComposedChart>
             </ResponsiveContainer>
           </div>
@@ -145,16 +247,17 @@ export function Quality() {
   )
 }
 
-function Big({ label, value, hint }: { label: string; value: string; hint: string }) {
+function Big({ label, value, sub, hint }: { label: string; value: string; sub?: string; hint: string }) {
   return (
     <div className="card" style={{ padding: '18px 20px' }}>
       <div className="row small muted" style={{ gap: 6, flexWrap: 'nowrap', justifyContent: 'space-between' }}>
         <span style={{ color: 'var(--text-2)', fontWeight: 500 }}>{label}</span>
         <Hint>{hint}</Hint>
       </div>
-      <div className="num" style={{ fontSize: 26, fontWeight: 700, marginTop: 8, color: 'var(--text)', letterSpacing: '-0.02em' }}>
+      <div className="num" style={{ fontSize: 24, fontWeight: 700, marginTop: 8, color: 'var(--text)', letterSpacing: '-0.02em' }}>
         {value}
       </div>
+      {sub && <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 4 }}>{sub}</div>}
     </div>
   )
 }

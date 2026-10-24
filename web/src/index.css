@@ -285,9 +285,10 @@ button, input, select, textarea { font: inherit; color: inherit; }
 }
 
 .main {
-  padding: 28px 36px 64px;
-  max-width: 1280px;
+  padding: 24px 36px 64px;
+  max-width: 100%;
   width: 100%;
+  box-sizing: border-box;
 }
 
 .page-head {
