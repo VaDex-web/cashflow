@@ -1,5 +1,5 @@
 import type {
-  CashEvent, CategoriesResponse, DailyPoint, ForecastResult, MetricsReport, NewCashEvent,
+  CashEvent, CategoriesResponse, DailyPoint, ForecastResult, IntegrationStatus, MetricsReport, NewCashEvent,
   PlanFact, Recurring, Risk, Scenario, ScenarioResult, SyncResponse, Transaction,
 } from '../types'
 import { fmtDay, fmtRub, parseDate, toISO } from '../lib/format'
@@ -18,6 +18,7 @@ let events: CashEvent[] | null = null
 const getEvents = () => (events ??= load<CashEvent[]>('events.json'))
 
 let lowData = false
+const syncedAt: Record<string, string> = {}
 
 export const mockApi = {
   async login(username: string, password: string) {
@@ -96,7 +97,18 @@ export const mockApi = {
   },
   async sync(_id: string, name: string): Promise<SyncResponse> {
     await delay(1200)
-    return { ...load<SyncResponse>('sync_response.json'), name }
+    syncedAt[name] = new Date().toISOString()
+    return { ...load<SyncResponse>('sync_response.json'), name, synced_at: syncedAt[name] }
+  },
+  async integrations(_id: string): Promise<IntegrationStatus[]> {
+    await delay()
+    return ['bank', '1c', 'tax_calendar', 'registry', 'contracts', 'invoices'].map((name) => ({
+      name, title: name, source: name, description: '', available: true, events: 0,
+      last_sync: syncedAt[name] ?? null, message: '',
+    }))
+  },
+  async uploadSource(id: string, name: string, _file: File): Promise<SyncResponse> {
+    return mockApi.sync(id, name)
   },
   async addTransactions(id: string, _rows: Partial<Transaction>[]) {
     await delay()

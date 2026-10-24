@@ -3,10 +3,11 @@ import { api } from '../api/client'
 import { AlertsList } from '../components/AlertsList'
 import { BalanceChart, ChartLegend } from '../components/BalanceChart'
 import { forecastToday, RiskCard } from '../components/RiskCard'
-import { Empty, ErrorBox, Hint, Loading, Warnings } from '../components/ui'
+import { Empty, ErrorBox, Hint, Loading, SourceBadge, Warnings } from '../components/ui'
 import { fmtDateTime, fmtDay, fmtRub } from '../lib/format'
 import { useSession } from '../lib/session'
 import { useAsync } from '../lib/useAsync'
+import type { EventSource } from '../types'
 
 export function Dashboard() {
   const { companyId } = useSession()
@@ -95,9 +96,9 @@ export function Dashboard() {
             <h3>На чём основан прогноз</h3>
             <Link to="/events" className="small">Управлять источниками →</Link>
           </div>
-          <ul className="small muted" style={{ margin: 0, paddingLeft: 18, display: 'grid', gap: 3 }}>
-            {f.sources_used.map((s) => <li key={s}>{s}</li>)}
-          </ul>
+          <div className="row" style={{ gap: 6 }}>
+            {f.sources_used.map((s) => <SourceBadge key={s} s={s as EventSource} />)}
+          </div>
         </section>
       )}
     </div>

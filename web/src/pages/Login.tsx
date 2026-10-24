@@ -17,7 +17,7 @@ export function Login() {
     try {
       const me = await api.me()
       if (me.company_id) company = me.company_id
-    } catch {  }
+    } catch {}
     setCompany(company)
     nav(company ? '/' : '/upload')
   }

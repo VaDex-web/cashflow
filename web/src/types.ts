@@ -109,6 +109,17 @@ export interface CategoriesResponse {
 }
 
 export type IntegrationName = 'bank' | '1c' | 'tax_calendar' | 'registry'
+export type UploadSourceName = '1c' | 'contracts' | 'invoices'
+export interface IntegrationStatus {
+  name: string
+  title: string
+  source: string
+  description: string
+  available: boolean
+  events: number
+  last_sync: string | null
+  message: string
+}
 export interface SyncResponse {
   name: string
   status: string

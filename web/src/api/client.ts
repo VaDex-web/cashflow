@@ -1,6 +1,6 @@
 import type {
-  CashEvent, CategoriesResponse, ForecastResult, IntegrationName, MetricsReport, NewCashEvent,
-  PlanFact, Recurring, Risk, Scenario, ScenarioResult, SyncResponse, Transaction,
+  CashEvent, CategoriesResponse, ForecastResult, IntegrationName, IntegrationStatus, MetricsReport, NewCashEvent,
+  PlanFact, Recurring, Risk, Scenario, ScenarioResult, SyncResponse, Transaction, UploadSourceName,
 } from '../types'
 import { mockApi } from './mock'
 
@@ -13,7 +13,7 @@ export const auth = {
     try { return localStorage.getItem(TOKEN_KEY) } catch { return null }
   },
   set(token: string | null) {
-    try { token ? localStorage.setItem(TOKEN_KEY, token) : localStorage.removeItem(TOKEN_KEY) } catch {  }
+    try { token ? localStorage.setItem(TOKEN_KEY, token) : localStorage.removeItem(TOKEN_KEY) } catch {}
   },
 }
 
@@ -50,7 +50,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     try {
       const body = await res.json()
       detail = typeof body.detail === 'string' ? body.detail : Array.isArray(body.detail) ? body.detail.map((d: { msg?: string }) => d.msg).join('; ') : ''
-    } catch {  }
+    } catch {}
     if (res.status === 401) auth.set(null)
     throw new ApiError(detail || STATUS_TEXT[res.status] || `Ошибка ${res.status}`, res.status)
   }
@@ -81,10 +81,17 @@ const realApi = {
   runScenario: (id: string, sc: Scenario) => request<ScenarioResult>(`/companies/${id}/scenarios/run`, json(sc)),
   planFact: (id: string) => request<PlanFact>(`/companies/${id}/plan-fact`),
   sync: (id: string, name: IntegrationName) => request<SyncResponse>(`/companies/${id}/integrations/${name}/sync`, { method: 'POST' }),
+  integrations: (id: string) => request<IntegrationStatus[]>(`/companies/${id}/integrations`),
+  uploadSource: (id: string, name: UploadSourceName, file: File) => {
+    const fd = new FormData()
+    fd.append('file', file)
+    return request<SyncResponse>(`/companies/${id}/integrations/${name}/upload`, { method: 'POST', body: fd })
+  },
   addTransactions: (id: string, rows: Partial<Transaction>[]) => request<ForecastResult>(`/companies/${id}/transactions`, json(rows)),
   metrics: async (): Promise<MetricsReport> => {
     if (!USE_MOCK) {
-      try { return await request<MetricsReport>('/metrics') } catch {  }
+      const r = await request<MetricsReport>('/metrics').catch(() => null)
+      if (r) return r
     }
     const v = Object.values(coreMetrics)[0] as MetricsReport | undefined
     return v ?? mockApi.metrics()

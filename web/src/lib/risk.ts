@@ -1,5 +1,5 @@
-import type { DailyPoint, Risk } from '../types'
-import { fmtRub, parseDate } from './format'
+import type { DailyPoint, ForecastResult, Risk } from '../types'
+import { fmtDay, fmtPct, fmtRub, parseDate } from './format'
 
 export type RiskKind = 'gap' | 'below_comfort'
 
@@ -40,4 +40,11 @@ export function shortfallText(r: Risk, daily: DailyPoint[], comfort?: number): {
     main: '',
     sub: `Обычно денег хватает. Если поступления задержатся или окажутся ниже обычного, может не хватить до ${fmtRub(r.shortfall_amount)}.`,
   }
+}
+
+export function forecastSummary(f: ForecastResult): string {
+  const gap = mainRisk(f.risks.filter((r) => riskKind(r) === 'gap'))
+  if (gap) return `разрыв ${fmtDay(gap.date)}, вероятность ${fmtPct(gap.probability)}`
+  const low = Math.min(...f.daily.map((d) => d.balance_p50))
+  return `разрыва не видно, самый низкий остаток ${fmtRub(low)}`
 }

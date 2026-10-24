@@ -3,9 +3,10 @@ import { api } from '../api/client'
 import { EVENT_ICON, EVENT_LABEL } from '../components/BalanceChart'
 import { Empty, ErrorBox, Loading, SourceBadge } from '../components/ui'
 import { fmtDateTime, fmtDayWeek, fmtRub, toISO } from '../lib/format'
+import { forecastSummary } from '../lib/risk'
 import { useSession } from '../lib/session'
 import { useAsync } from '../lib/useAsync'
-import type { CashEvent, Direction, EventStatus, EventType, IntegrationName, NewCashEvent } from '../types'
+import type { CashEvent, Direction, EventStatus, EventType, IntegrationName, NewCashEvent, UploadSourceName } from '../types'
 import { NoCompany } from './Dashboard'
 
 const INTEGRATIONS: { name: IntegrationName; icon: string; title: string; text: string }[] = [
@@ -14,6 +15,14 @@ const INTEGRATIONS: { name: IntegrationName; icon: string; title: string; text: 
   { name: 'tax_calendar', icon: '🧾', title: 'Налоговый календарь', text: 'Сроки и примерные суммы налогов' },
   { name: 'registry', icon: '📜', title: 'Открытые реестры', text: 'Госконтракты и данные о контрагентах' },
 ]
+
+const UPLOADS: { name: UploadSourceName; title: string; hint: string; accept: string }[] = [
+  { name: '1c', title: 'Выгрузка из 1С', hint: 'JSON-выгрузка: счета, договоры, зарплата, налоги', accept: '.json' },
+  { name: 'contracts', title: 'Договоры', hint: 'CSV или JSON: контрагент, сумма, график оплат', accept: '.csv,.json' },
+  { name: 'invoices', title: 'Счета', hint: 'CSV или JSON: номер, контрагент, сумма, срок оплаты', accept: '.csv,.json' },
+]
+
+type Track = <T>(what: string, action: () => Promise<T>) => Promise<T>
 
 const STATUS: Record<EventStatus, { label: string; cls: string }> = {
   expected: { label: 'Ожидается', cls: 'b-neutral' },
@@ -31,17 +40,29 @@ const TEMPLATES: { label: string; direction: Direction; type: EventType; note: s
 export function Events() {
   const { companyId } = useSession()
   const ev = useAsync(() => (companyId ? api.events(companyId) : Promise.resolve([])), [companyId])
+  const status = useAsync(() => (companyId ? api.integrations(companyId) : Promise.resolve([])), [companyId])
   const [synced, setSynced] = useState<Record<string, { at: string; added?: number; message?: string } | 'busy' | { error: string }>>({})
   const [filter, setFilter] = useState<'upcoming' | 'all'>('upcoming')
+  const [effect, setEffect] = useState<{ what: string; before: string; after: string } | null>(null)
 
   if (!companyId) return <NoCompany />
+  const cid = companyId
 
-  async function sync(name: IntegrationName) {
+  const track: Track = async (what, action) => {
+    const before = await api.forecast(cid).then(forecastSummary).catch(() => null)
+    const result = await action()
+    const after = await api.forecast(cid).then(forecastSummary).catch(() => null)
+    if (before && after) setEffect({ what, before, after })
+    ev.reload()
+    status.reload()
+    return result
+  }
+
+  async function sync(name: IntegrationName, title: string) {
     setSynced((s) => ({ ...s, [name]: 'busy' }))
     try {
-      const r = await api.sync(companyId!, name)
+      const r = await track(title, () => api.sync(cid, name))
       setSynced((s) => ({ ...s, [name]: { at: r.synced_at ?? new Date().toISOString(), added: r.events_added, message: r.message } }))
-      ev.reload()
     } catch (e) {
       setSynced((s) => ({ ...s, [name]: { error: e instanceof Error ? e.message : String(e) } }))
     }
@@ -60,27 +81,47 @@ export function Events() {
         </div>
       </div>
 
+      {effect && (
+        <div className="notice notice-info" role="status">
+          <span>📈</span>
+          <span>
+            {effect.before === effect.after
+              ? <>«{effect.what}»: прогноз не изменился — {effect.after}.</>
+              : <>«{effect.what}» изменил прогноз: было — {effect.before}; <b>стало — {effect.after}</b>.</>}
+          </span>
+        </div>
+      )}
+
       <section className="grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: 12 }}>
         {INTEGRATIONS.map((i) => {
           const st = synced[i.name]
+          const server = status.data?.find((x) => x.name === i.name)
+          const local = st && st !== 'busy' && 'at' in st ? st : null
+          const lastSync = local?.at ?? server?.last_sync ?? null
+          const message = local?.message ?? server?.message
           return (
             <div key={i.name} className="card" style={{ padding: 16, display: 'grid', gap: 8 }}>
               <div className="row" style={{ gap: 8 }}><span style={{ fontSize: 22 }}>{i.icon}</span><h3>{i.title}</h3></div>
               <p className="small muted">{i.text}</p>
-              {st && st !== 'busy' && 'at' in st && (
+              {lastSync && (
                 <>
-                  <div className="tiny" style={{ color: 'var(--ok)' }}>✓ Обновлено {fmtDateTime(st.at)}{st.added != null && ` · новых событий: ${st.added}`}</div>
-                  {st.message && <div className="tiny">{st.message}</div>}
+                  <div className="tiny" style={{ color: 'var(--ok)' }}>
+                    ✓ Подключено · обновлено {fmtDateTime(lastSync)}
+                    {local?.added != null ? ` · новых событий: ${local.added}` : server && server.events > 0 ? ` · событий: ${server.events}` : ''}
+                  </div>
+                  {message && <div className="tiny">{message}</div>}
                 </>
               )}
               {st && st !== 'busy' && 'error' in st && <div className="tiny" style={{ color: 'var(--red)' }}>{st.error}</div>}
-              <button className="btn btn-sm btn-ghost" onClick={() => sync(i.name)} disabled={st === 'busy'} style={{ justifySelf: 'start' }}>
-                {st === 'busy' ? 'Синхронизируем…' : st ? '🔄 Синхронизировать' : '🔌 Подключить'}
+              <button className="btn btn-sm btn-ghost" onClick={() => sync(i.name, i.title)} disabled={st === 'busy'} style={{ justifySelf: 'start' }}>
+                {st === 'busy' ? 'Синхронизируем…' : lastSync ? '🔄 Обновить' : '🔌 Подключить'}
               </button>
             </div>
           )
         })}
       </section>
+
+      <SourceUpload companyId={cid} track={track} />
 
       <div className="grid-main">
         <section className="card">
@@ -119,13 +160,62 @@ export function Events() {
           )}
         </section>
 
-        <ManualForm companyId={companyId} onAdded={ev.reload} />
+        <ManualForm companyId={cid} track={track} />
       </div>
     </div>
   )
 }
 
-function ManualForm({ companyId, onAdded }: { companyId: string; onAdded(): void }) {
+function SourceUpload({ companyId, track }: { companyId: string; track: Track }) {
+  const [kind, setKind] = useState<UploadSourceName>('1c')
+  const [file, setFile] = useState<File | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
+  const meta = UPLOADS.find((u) => u.name === kind)!
+
+  async function upload(e: FormEvent) {
+    e.preventDefault()
+    if (!file) return
+    setBusy(true)
+    setMsg(null)
+    try {
+      const r = await track(meta.title, () => api.uploadSource(companyId, kind, file))
+      setMsg({ ok: true, text: r.message || `Файл «${file.name}» загружен, новых событий: ${r.events_added ?? 0}.` })
+      setFile(null)
+    } catch (err) {
+      setMsg({ ok: false, text: err instanceof Error ? err.message : String(err) })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <form className="card" onSubmit={upload} style={{ display: 'grid', gap: 10 }}>
+      <div className="card-head" style={{ marginBottom: 0 }}><h2>Загрузить файл источника</h2></div>
+      <p className="small muted">Выгрузка из 1С, договоры или счета — ожидаемые платежи из файла сразу попадут в прогноз.</p>
+      <div className="seg" style={{ justifySelf: 'start', flexWrap: 'wrap' }}>
+        {UPLOADS.map((u) => (
+          <button type="button" key={u.name} className={kind === u.name ? 'on' : ''} onClick={() => { setKind(u.name); setFile(null); setMsg(null) }}>{u.title}</button>
+        ))}
+      </div>
+      <div className="tiny">{meta.hint}</div>
+      <div className="row" style={{ gap: 8 }}>
+        <label className="btn btn-ghost" style={{ cursor: 'pointer' }}>
+          📎 Выбрать файл
+          <input key={kind} type="file" accept={meta.accept} aria-label={`Файл: ${meta.title}`} hidden
+            onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+        </label>
+        <span className="small muted" style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {file ? file.name : 'файл не выбран'}
+        </span>
+        <button className="btn btn-lime" disabled={busy || !file}>{busy ? 'Загружаем…' : 'Загрузить'}</button>
+      </div>
+      {msg && <div className={`notice ${msg.ok ? 'notice-info' : 'notice-err'}`}>{msg.text}</div>}
+    </form>
+  )
+}
+
+function ManualForm({ companyId, track }: { companyId: string; track: Track }) {
   const tomorrow = (() => { const d = new Date(); d.setDate(d.getDate() + 1); return toISO(d) })()
   const [date, setDate] = useState(tomorrow)
   const [amount, setAmount] = useState('')
@@ -149,15 +239,14 @@ function ManualForm({ companyId, onAdded }: { companyId: string; onAdded(): void
     setBusy(true)
     setMsg(null)
     try {
-      const created: CashEvent = await api.addEvent(companyId, {
+      const created: CashEvent = await track('Платёж вручную', () => api.addEvent(companyId, {
         type, direction, amount: sum, date, source: 'manual', status: 'expected',
         counterparty: counterparty.trim() || undefined, note: note.trim() || undefined,
-      })
+      }))
       setMsg({ ok: true, text: `Добавлено: ${direction === 'in' ? '+' : '−'}${fmtRub(created.amount)} на ${fmtDayWeek(created.date)}. Прогноз на главной учтёт этот платёж.` })
       setAmount('')
       setCounterparty('')
       setNote('')
-      onAdded()
     } catch (err) {
       setMsg({ ok: false, text: err instanceof Error ? err.message : String(err) })
     } finally {
@@ -169,7 +258,7 @@ function ManualForm({ companyId, onAdded }: { companyId: string; onAdded(): void
     <form className="card" onSubmit={submit} style={{ display: 'grid', gap: 12 }}>
       <h2>Добавить платёж вручную</h2>
       <p className="small muted">Знаете о платеже, которого нет в 1С? Добавьте — и прогноз его учтёт.</p>
-      <PhraseInput companyId={companyId} onAdded={onAdded} />
+      <PhraseInput companyId={companyId} track={track} />
       <div className="tiny" style={{ textAlign: 'center' }}>или заполните поля</div>
       <div className="row" style={{ gap: 6 }}>
         {TEMPLATES.map((t) => (
@@ -192,7 +281,7 @@ function ManualForm({ companyId, onAdded }: { companyId: string; onAdded(): void
   )
 }
 
-function PhraseInput({ companyId, onAdded }: { companyId: string; onAdded(): void }) {
+function PhraseInput({ companyId, track }: { companyId: string; track: Track }) {
   const [text, setText] = useState('')
   const [draft, setDraft] = useState<{ event: NewCashEvent; understood: string } | null>(null)
   const [busy, setBusy] = useState(false)
@@ -216,11 +305,10 @@ function PhraseInput({ companyId, onAdded }: { companyId: string; onAdded(): voi
     if (!draft) return
     setBusy(true)
     try {
-      const created = await api.addEvent(companyId, draft.event)
+      const created = await track('Платёж из фразы', () => api.addEvent(companyId, draft.event))
       setMsg({ ok: true, text: `Добавлено: ${created.direction === 'in' ? '+' : '−'}${fmtRub(created.amount)} на ${fmtDayWeek(created.date)}. Прогноз учтёт этот платёж.` })
       setDraft(null)
       setText('')
-      onAdded()
     } catch (err) {
       setMsg({ ok: false, text: err instanceof Error ? err.message : String(err) })
     } finally {
