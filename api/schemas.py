@@ -10,7 +10,8 @@ Severity = Literal["low", "medium", "high"]
 EventType = Literal["contract", "invoice", "tax", "loan", "payroll", "manual"]
 EventSource = Literal["bank", "1c", "tax_calendar", "manual", "open_registry"]
 EventStatus = Literal["expected", "paid", "overdue"]
-ScenarioType = Literal["client_delay", "revenue_drop", "unplanned_expense", "fixed_cost_growth"]
+ScenarioType = Literal["client_delay", "revenue_drop", "unplanned_expense", "fixed_cost_growth", "client_lost",
+                       "tax_increase"]
 IntegrationName = Literal["bank", "1c", "tax_calendar", "registry", "contracts", "invoices"]
 
 
@@ -82,6 +83,13 @@ class Scenario(_Model):
             v = _num(p.get("percent"), "percent")
             if not 0 < v <= 200:
                 raise ValueError("Рост постоянных расходов — больше 0 и не больше 200% (percent)")
+        elif self.type == "client_lost":
+            if not str(p.get("counterparty_or_event_id") or "").strip():
+                raise ValueError("Укажите клиента, который перестанет платить (counterparty_or_event_id)")
+        elif self.type == "tax_increase":
+            v = _num(p.get("percent"), "percent")
+            if not 0 < v <= 100:
+                raise ValueError("Рост налогов — больше 0 и не больше 100% (percent)")
         return self
 
 

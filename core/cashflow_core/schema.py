@@ -8,7 +8,7 @@ Severity = Literal["low", "medium", "high"]
 EVENT_TYPES = ("contract", "invoice", "tax", "loan", "payroll", "manual")
 EVENT_SOURCES = ("bank", "1c", "tax_calendar", "manual", "open_registry")
 EVENT_STATUSES = ("expected", "paid", "overdue")
-SCENARIO_TYPES = ("client_delay", "revenue_drop", "unplanned_expense", "fixed_cost_growth")
+SCENARIO_TYPES = ("client_delay", "revenue_drop", "unplanned_expense", "fixed_cost_growth", "client_lost", "tax_increase")
 
 CATEGORIES: dict[str, str] = {
     "revenue": "Выручка от клиентов",

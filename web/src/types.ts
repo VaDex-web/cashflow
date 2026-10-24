@@ -24,6 +24,8 @@ export type Scenario =
   | { type: 'revenue_drop'; params: { percent: number } }
   | { type: 'unplanned_expense'; params: { amount: number; date: string } }
   | { type: 'fixed_cost_growth'; params: { percent: number } }
+  | { type: 'client_lost'; params: { counterparty_or_event_id: string } }
+  | { type: 'tax_increase'; params: { percent: number } }
 
 export type ScenarioType = Scenario['type']
 

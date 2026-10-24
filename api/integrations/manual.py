@@ -9,7 +9,9 @@ from ..textfmt import MONTHS_GEN, day_month, rub
 from .base import CompanyContext, Integration, SourceEvent
 
 _MONTH_STEMS = ["январ", "феврал", "март", "апрел", "ма", "июн", "июл", "август", "сентябр", "октябр", "ноябр", "декабр"]
-_AMOUNT_RX = re.compile(r"(\d[\d\s ]*(?:[.,]\d+)?)\s*(млн|миллион\w*|тыс\w*|т\.?р\.?|к(?![а-я]))?\s*(?:₽|руб\w*|р\.(?!\w))?", re.I)
+_AMOUNT_RX = re.compile(r"(\d[\d\s ]*(?:[.,]\d+)?)\s*(млн|миллион\w*|тыс\w*|т\.?р\.?|к(?![а-я]))?\s*(₽|руб\w*|р\.(?!\w))?", re.I)
+_ROLE_RX = re.compile(r"\b(?:клиент\w*|покупател\w*|заказчик\w*|поставщик\w*|контрагент\w*|партн[её]р\w*|арендатор\w*)"
+                      r"\s+([А-ЯЁA-Z][\w-]+(?:\s+[А-ЯЁA-Z][\w-]+)?)")
 _IN_WORDS = ("клиент", "покупател", "заказчик", "обещал", "поступ", "получ", "придет", "придёт", "вернут", "вернёт",
              "вернет", "оплатит нам", "переведут", "заплатят", "аванс от", "предоплат от")
 _OUT_WORDS = ("куплю", "купим", "купить", "покупк", "закуп", "оплатить", "заплатить поставщ", "штраф", "ремонт",
@@ -37,6 +39,14 @@ def _amount(text: str) -> float | None:
         if v >= 100 and (best is None or v > best):
             best = v
     return best
+
+
+def _without_amounts(text: str) -> str:
+    out = text
+    for m in _AMOUNT_RX.finditer(text):
+        if m.group(2) or m.group(3):
+            out = out[:m.start()] + " " * (m.end() - m.start()) + out[m.end():]
+    return out
 
 
 def _next_day_of_month(today: date, day: int) -> date:
@@ -103,6 +113,9 @@ def _counterparty(text: str) -> str | None:
     if m:
         return f"«{m.group(1)}»"
     m = re.search(r"\b(ИП\s+[А-ЯЁ][а-яё]+(?:\s+[А-ЯЁ]\.\s*[А-ЯЁ]\.)?)", text)
+    if m:
+        return m.group(1)
+    m = _ROLE_RX.search(text)
     return m.group(1) if m else None
 
 
@@ -114,7 +127,7 @@ def parse_text(text: str, today: date) -> tuple[EventCreate, str]:
     amount = _amount(text)
     if amount is None:
         raise ValueError("Не нашли сумму. Напишите, например: «клиент обещал заплатить 300 000 ₽ 20-го».")
-    when, how = _date(text, today, direction)
+    when, how = _date(_without_amounts(text), today, direction)
     etype = "manual"
     if "налог" in low or "енп" in low:
         etype = "tax"

@@ -511,7 +511,7 @@ def scenario(session: Session, company: Company, sc: dict[str, Any], horizon: in
     adj, adj_notes = _registry_adjustment(session, company)
     notes = notes + adj_notes + _cushion_note(session, company)
     sc = copy.deepcopy(sc)
-    if sc["type"] == "client_delay":
+    if sc["type"] in ("client_delay", "client_lost"):
         target = str(sc["params"]["counterparty_or_event_id"]).strip()
         row = session.scalar(select(EventRow).where(EventRow.company_id == company.id, EventRow.id == target))
         sc["params"]["counterparty_or_event_id"] = (row.counterparty or target) if row is not None else target

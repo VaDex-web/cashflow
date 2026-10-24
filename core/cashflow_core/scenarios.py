@@ -21,6 +21,17 @@ def _num(x: Any, default: float) -> float:
         return default
 
 
+def _client_share(state: "ForecastState", target: str) -> float:
+    tx = state.df
+    if not target or not len(tx):
+        return 0.0
+    m = (tx["direction"] == "in") & (tx["counterparty_name"].str.lower().str.contains(target, regex=False)
+                                      | (tx["counterparty_inn"].str.lower() == target))
+    recent = pd.to_datetime(tx["date"]) > pd.Timestamp(state.as_of) - pd.Timedelta(days=90)
+    rec_in = tx[(tx["direction"] == "in") & recent & ~tx["tx_id"].isin({t for p in state.patterns for t in p.tx_ids})]
+    return float(tx.loc[m & recent & tx.index.isin(rec_in.index), "amount"].sum() / max(rec_in["amount"].sum(), 1.0))
+
+
 def apply_scenario(state: "ForecastState", plan: "Plan", scenario: dict[str, Any]) -> "Plan":
     from .engine import PlannedItem
 
@@ -32,7 +43,32 @@ def apply_scenario(state: "ForecastState", plan: "Plan", scenario: dict[str, Any
         pl.warnings.append(f"Неизвестный сценарий «{stype}» — показан базовый прогноз.")
         return pl
 
-    if stype == "client_delay":
+    if stype == "client_lost":
+        target = str(params.get("counterparty_or_event_id") or "").strip().lower()
+        hits = 0
+        for it in pl.items:
+            if it.direction == "in" and target and (target in (it.ref.lower(), it.id.lower()) or (
+                    it.counterparty and (target in it.counterparty.lower() or it.counterparty.lower() in target))):
+                it.amount_mult = 0.0
+                hits += 1
+        share = _client_share(state, target)
+        if share > 0:
+            pl.in_mult *= (1 - share)
+            hits += 1
+        if not hits:
+            pl.warnings.append("Сценарий потери клиента: такой клиент не найден — прогноз не изменился.")
+
+    elif stype == "tax_increase":
+        pct = float(np.clip(_num(params.get("percent"), 10), 0, 300)) / 100
+        hits = 0
+        for it in pl.items:
+            if it.direction == "out" and (it.kind == "tax" or it.category == "taxes"):
+                it.amount_mult *= (1 + pct)
+                hits += 1
+        if not hits:
+            pl.warnings.append("В горизонте прогноза нет налоговых платежей — рост налога на него не влияет.")
+
+    elif stype == "client_delay":
         weeks = int(round(_num(params.get("weeks"), 2)))
         if not 1 <= weeks <= 12:
             pl.warnings.append("weeks вне диапазона 1–12 — использовано 2 недели.")
@@ -47,20 +83,14 @@ def apply_scenario(state: "ForecastState", plan: "Plan", scenario: dict[str, Any
                                                                                     or it.counterparty.lower() in target)):
                 it.day_shift += shift
                 hits += 1
-        tx = state.df
-        if target and len(tx):
-            m = (tx["direction"] == "in") & (tx["counterparty_name"].str.lower().str.contains(target, regex=False)
-                                              | (tx["counterparty_inn"].str.lower() == target))
-            recent = pd.to_datetime(tx["date"]) > pd.Timestamp(state.as_of) - pd.Timedelta(days=90)
-            rec_in = tx[(tx["direction"] == "in") & recent & ~tx["tx_id"].isin({t for p in state.patterns for t in p.tx_ids})]
-            share = float(tx.loc[m & recent & tx.index.isin(rec_in.index), "amount"].sum() / max(rec_in["amount"].sum(), 1.0))
-            if share > 0:
-                hits += 1
-                d = min(shift, H)
-                delayed = pl.res_in[:d] * share
-                pl.in_mult[:d] *= (1 - share)
-                if shift < H:
-                    pl.extra[shift] += float(delayed.sum())
+        share = _client_share(state, target)
+        if share > 0:
+            hits += 1
+            d = min(shift, H)
+            delayed = pl.res_in[:d] * share
+            pl.in_mult[:d] *= (1 - share)
+            if shift < H:
+                pl.extra[shift] += float(delayed.sum())
         if not hits:
             pl.warnings.append("Сценарий задержки: такой клиент или событие не найдены — прогноз не изменился.")
 

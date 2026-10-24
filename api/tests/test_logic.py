@@ -146,11 +146,25 @@ def test_bank_mock_from_history_without_file():
     ("ООО «Ромашка» вернёт долг 150 тыс 5 ноября", "in", 150000, date(2026, 11, 5)),
     ("штраф 45 000 р. 30.10", "out", 45000, date(2026, 10, 30)),
     ("получим предоплату 1,5 млн через 2 недели", "in", 1_500_000, date(2026, 11, 6)),
+    ("купим станок за 1.2 млн 10 ноября", "out", 1_200_000, date(2026, 11, 10)),
+    ("купим станок за 1,2 млн 10.11", "out", 1_200_000, date(2026, 11, 10)),
+    ("заплатить поставщику 300 тыс 28.10", "out", 300_000, date(2026, 10, 28)),
+    ("клиент Ромашка обещал 2.5 млн 1-го", "in", 2_500_000, date(2026, 11, 1)),
 ])
 def test_parse_text(text, direction, amount, day):
     ev, understood = parse_text(text, date(2026, 10, 23))
     assert (ev.direction, ev.amount, ev.date) == (direction, amount, day)
     assert ev.source == "manual" and understood
+
+
+def test_parse_text_counterparty():
+    for text, cp in (("клиент Ромашка обещал заплатить 300 тыс 20-го", "Ромашка"),
+                     ("поставщик Агро Трейд ждёт оплату 1,2 млн 30.10", "Агро Трейд"),
+                     ("ООО «Ромашка» вернёт долг 150 тыс 5 ноября", "ООО «Ромашка»"),
+                     ("клиент обещал заплатить 300 000 ₽ 20-го", None)):
+        ev, understood = parse_text(text, date(2026, 10, 23))
+        assert ev.counterparty == cp, text
+        assert cp is None or cp in understood
 
 
 def test_parse_text_needs_amount():

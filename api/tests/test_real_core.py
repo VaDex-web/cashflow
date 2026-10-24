@@ -24,6 +24,14 @@ def test_s02_sources_reveal_gap(real):
     assert set(full["sources_used"]) >= {"bank", "1c", "tax_calendar", "open_registry"}
     assert any("ДонТрансЛогистика" in w for w in full["warnings"])
 
+    lost = real.post(f"/api/companies/{cid}/scenarios/run", headers=h,
+                     json={"type": "client_lost", "params": {"counterparty_or_event_id": "АО «ДонТрансЛогистика»"}})
+    assert lost.status_code == 200
+    assert lost.json()["scenario"]["daily"][-1]["balance_p50"] < lost.json()["base"]["daily"][-1]["balance_p50"]
+    tax = real.post(f"/api/companies/{cid}/scenarios/run", headers=h, json={"type": "tax_increase", "params": {"percent": 20}})
+    assert tax.status_code == 200
+    assert tax.json()["scenario"]["daily"][-1]["balance_p50"] < tax.json()["base"]["daily"][-1]["balance_p50"]
+
     sc = real.post(f"/api/companies/{cid}/scenarios/run", headers=h,
                    json={"type": "unplanned_expense", "params": {"amount": 1500000, "date": "2026-10-29"}})
     assert sc.status_code == 200

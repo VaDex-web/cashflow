@@ -128,6 +128,10 @@ def test_scenario_validation_in_russian(stub, auth):
     assert r.status_code == 422 and "клиента" in r.json()["detail"]
     r = stub.post(f"/api/companies/{cid}/scenarios/run", headers=auth, json={"type": "revenue_drop", "params": {"percent": 80}})
     assert r.status_code == 422 and "от 10 до 30%" in r.json()["detail"]
+    r = stub.post(f"/api/companies/{cid}/scenarios/run", headers=auth, json={"type": "client_lost", "params": {}})
+    assert r.status_code == 422 and "перестанет платить" in r.json()["detail"]
+    r = stub.post(f"/api/companies/{cid}/scenarios/run", headers=auth, json={"type": "tax_increase", "params": {"percent": 0}})
+    assert r.status_code == 422 and "Рост налогов" in r.json()["detail"]
     r = stub.post(f"/api/companies/{cid}/scenarios/run", headers=auth, json={"type": "nope", "params": {}})
     assert r.status_code == 422 and r.json()["detail"].startswith("Проверьте данные")
 

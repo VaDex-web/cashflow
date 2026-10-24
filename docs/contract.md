@@ -69,7 +69,7 @@
 
 ### Scenario
 ```json
-{ "type": "client_delay | revenue_drop | unplanned_expense | fixed_cost_growth", "params": {} }
+{ "type": "client_delay | revenue_drop | unplanned_expense | fixed_cost_growth | client_lost | tax_increase", "params": {} }
 ```
 | type | params |
 |---|---|
@@ -77,6 +77,10 @@
 | `revenue_drop` | `{ "percent": 10..30 }` |
 | `unplanned_expense` | `{ "amount": number, "date": "YYYY-MM-DD" }` |
 | `fixed_cost_growth` | `{ "percent": number }` |
+| `client_lost` | `{ "counterparty_or_event_id": "string" }` — клиент перестал платить: его регулярные и обычные поступления убираются из прогноза |
+| `tax_increase` | `{ "percent": 1..100 }` — налоги (ЕНП, УСН, НДС, налог на прибыль) вырастут на N% |
+
+`client_lost` и `tax_increase` добавлены 24.10.2026 по решению тимлида (граничные случаи «потеря клиента» и «рост налога»).
 
 ### ForecastResult
 ```json

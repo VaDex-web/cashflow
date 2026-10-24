@@ -14,6 +14,8 @@ const CARDS: { type: ScenarioType; icon: string; title: string; text: string }[]
   { type: 'revenue_drop', icon: '📉', title: 'Выручка упадёт', text: 'Продажи окажутся ниже обычного на 10–30%' },
   { type: 'unplanned_expense', icon: '🔧', title: 'Внеплановый расход', text: 'Срочный ремонт, штраф, закупка оборудования' },
   { type: 'fixed_cost_growth', icon: '🏢', title: 'Вырастут постоянные расходы', text: 'Аренда, зарплата, кредиты подорожают' },
+  { type: 'client_lost', icon: '🚪', title: 'Клиент перестанет платить', text: 'Крупный клиент уйдёт — его оплат больше не будет' },
+  { type: 'tax_increase', icon: '🧾', title: 'Вырастут налоги', text: 'Новая ставка или налог: платежи в бюджет больше на N%' },
 ]
 
 function firstGap(f: ForecastResult) {
@@ -32,6 +34,7 @@ export function Scenarios() {
   const [weeks, setWeeks] = useState(3)
   const [percent, setPercent] = useState(20)
   const [growth, setGrowth] = useState(10)
+  const [tax, setTax] = useState(20)
   const [amount, setAmount] = useState(300_000)
   const [date, setDate] = useState('')
   const [client, setClient] = useState('')
@@ -55,6 +58,9 @@ export function Scenarios() {
     return out.sort((a, b) => b.amount - a.amount)
   }, [events.data, recurring.data])
   const clientId = client || clients[0]?.value || ''
+  const regular = clients.filter((c) => !(events.data ?? []).some((e) => e.id === c.value))
+  const lostOptions = regular.length ? regular : clients
+  const lostId = lostOptions.some((c) => c.value === client) ? client : lostOptions[0]?.value || ''
   const defaultDate = useMemo(() => { const d = new Date(); d.setDate(d.getDate() + 7); return toISO(d) }, [])
 
   if (!companyId) return <NoCompany />
@@ -65,6 +71,8 @@ export function Scenarios() {
       case 'revenue_drop': return { type, params: { percent } }
       case 'unplanned_expense': return { type, params: { amount, date: date || defaultDate } }
       case 'fixed_cost_growth': return { type, params: { percent: growth } }
+      case 'client_lost': return { type, params: { counterparty_or_event_id: lostId } }
+      case 'tax_increase': return { type, params: { percent: tax } }
     }
   }
 
@@ -129,8 +137,19 @@ export function Scenarios() {
           {type === 'fixed_cost_growth' && (
             <Slider label="На сколько вырастут постоянные расходы" value={growth} min={5} max={30} step={5} onChange={setGrowth} fmt={(v) => `+${v}%`} />
           )}
+          {type === 'client_lost' && (
+            <label className="field" style={{ minWidth: 280, flex: 1 }}>Какой клиент перестанет платить
+              <select className="input" value={lostId} onChange={(e) => setClient(e.target.value)}>
+                {lostOptions.length === 0 && <option value="">Нет регулярных клиентов в выписке</option>}
+                {lostOptions.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
+              </select>
+            </label>
+          )}
+          {type === 'tax_increase' && (
+            <Slider label="На сколько вырастут налоги" value={tax} min={5} max={50} step={5} onChange={setTax} fmt={(v) => `+${v}%`} />
+          )}
           <span className="spacer" />
-          <button className="btn btn-lime" onClick={run} disabled={busy || (type === 'client_delay' && !clientId)} style={{ padding: '12px 22px' }}>
+          <button className="btn btn-lime" onClick={run} disabled={busy || (type === 'client_delay' && !clientId) || (type === 'client_lost' && !lostId)} style={{ padding: '12px 22px' }}>
             {busy ? 'Считаем…' : 'Показать'}
           </button>
         </div>

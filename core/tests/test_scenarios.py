@@ -43,3 +43,23 @@ def test_unknown_scenario_is_safe():
     r = run_scenarios(_state_with_tight_balance(), scenario={"type": "nope", "params": {}})
     assert r["delta"]["max_shortfall_change"] == 0
     assert any("Неизвестный сценарий" in w for w in r["scenario"]["warnings"])
+
+
+def _end_p50(r, key):
+    return r[key]["daily"][-1]["balance_p50"]
+
+
+def test_client_lost_removes_its_payments():
+    st = _state_with_tight_balance()
+    r = run_scenarios(st, scenario={"type": "client_lost", "params": {"counterparty_or_event_id": "ООО «Клиент-01»"}})
+    assert r["delta"]["max_shortfall"] >= r["delta"]["max_shortfall_base"]
+    assert _end_p50(r, "scenario") < _end_p50(r, "base")
+    nobody = run_scenarios(st, scenario={"type": "client_lost", "params": {"counterparty_or_event_id": "ООО «Нет такого»"}})
+    assert any("не найден" in w for w in nobody["scenario"]["warnings"])
+
+
+def test_tax_increase_lowers_balance_by_tax_share():
+    st = _state_with_tight_balance()
+    r = run_scenarios(st, scenario={"type": "tax_increase", "params": {"percent": 50}})
+    assert _end_p50(r, "scenario") < _end_p50(r, "base")
+    assert r["delta"]["max_shortfall"] >= r["delta"]["max_shortfall_base"]
