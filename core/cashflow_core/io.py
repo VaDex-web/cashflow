@@ -448,6 +448,15 @@ def load_statement(
             warnings.append(f"В выписке есть период {longest} дн. без операций — возможно, пропуск данных.")
         if (daily["balance"] < 0).any():
             warnings.append("В истории были дни с отрицательным остатком (овердрафт или ошибки выписки).")
+        no_inn = float((out["counterparty_inn"].fillna("").astype(str).str.strip() == "").mean())
+        no_purpose = float((out["purpose"].fillna("").astype(str).str.strip() == "").mean())
+        quality["share_without_inn"], quality["share_without_purpose"] = round(no_inn, 3), round(no_purpose, 3)
+        if no_inn >= 0.999:
+            warnings.append("Ни у одной операции нет ИНН контрагента — клиентов и регулярные платежи узнаём только "
+                            "по названиям, точность ниже.")
+        if no_purpose >= 0.3:
+            warnings.append(f"У {no_purpose:.0%} операций пустое назначение платежа — категории определены по "
+                            "контрагенту и сумме и могут быть неточными.")
     quality["rows_out"] = int(len(out))
     log.info("statement loaded: rows_in=%d rows_out=%d dup=%d", quality["rows_in"], quality["rows_out"], n_dup)
     return out

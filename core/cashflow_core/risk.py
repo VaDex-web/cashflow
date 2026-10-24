@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
+from .categorize import OWNER_FLOW_RE
 from .fmt import day_month, plural_days, rub
 from .schema import GAP_PROBABILITY_LIKELY, GAP_PROBABILITY_REPORT
 
@@ -136,6 +137,8 @@ def find_risks(state: "ForecastState", plan: "Plan", sim: "SimResult", with_kind
     """
     thr = float(state.settings.get("threshold", 0.0))
     comfort = float(state.settings.get("comfort_balance") or 0.0)
+    if state.settings.get("account_closed"):
+        return []  # счёт закрыт — вместо риска предупреждение в warnings
     bal = sim.balances
     p50 = np.median(bal, axis=0)
     p10 = np.quantile(bal, 0.1, axis=0)
@@ -146,6 +149,7 @@ def find_risks(state: "ForecastState", plan: "Plan", sim: "SimResult", with_kind
     for a, b in _episodes(p_gap, GAP_PROBABILITY_REPORT):
         gap_days.update(range(a, b + 1))
         k, prob, shortfall = _episode_stats(bal, p_gap, thr, a, b)
+        shortfall = min(shortfall, _worst_case_deficit(state, plan, b, thr))
         risks.append((k, {
             "kind": "gap",
             "date": plan.dates[k].isoformat(),
@@ -182,8 +186,30 @@ def find_risks(state: "ForecastState", plan: "Plan", sim: "SimResult", with_kind
     return [r for _, r in risks]
 
 
+def _worst_case_deficit(state: "ForecastState", plan: "Plan", b: int, thr: float) -> float:
+    """Верхняя граница нехватки к дню ``b``: если не придёт вообще ничего, а списания будут на 50% выше обычного.
+
+    Ограничивает «хвост» симуляций разумным уровнем (иначе у коротких и «рваных» историй — десятки миллионов)."""
+    from .engine import _known_net
+
+    rate_out = float(state.settings.get("rate_out", 0.0))
+    if rate_out <= 0:
+        return float("inf")
+    low = plan.start_balance + _known_net(plan)[: b + 1] - 1.5 * rate_out * np.arange(1, b + 2)
+    return max(0.0, float(thr - low.min()))
+
+
+def _pct(prob: float) -> int:
+    """Проценты как на бейдже в интерфейсе (Math.round)."""
+    return int(math.floor(prob * 100 + 0.5))
+
+
 def _prob_text(prob: float) -> str:
-    return f"Вероятность — около {round(prob * 100 / 5) * 5:.0f}%."
+    return f"Вероятность — {_pct(prob)}%."
+
+
+def _short_note(state: "ForecastState") -> str:
+    return " История короткая — прогноз приблизительный, уверенность низкая." if state.mode != "full" else ""
 
 
 def _due_items(plan: "Plan", k: int) -> list["PlannedItem"]:
@@ -192,12 +218,12 @@ def _due_items(plan: "Plan", k: int) -> list["PlannedItem"]:
 
 
 def _late_client_text(plan: "Plan", k: int, gap_size: float) -> str:
-    late = [it for it in plan.items if it.direction == "in" and it.delay_prob >= 0.15 and k - 14 <= it.day <= k
-            and it.counterparty and it.expected_amount >= 0.2 * gap_size]
+    late = [it for it in plan.items if it.direction == "in" and it.delay_prob >= 0.15
+            and k - 14 <= it.day + it.day_shift <= k and it.counterparty and it.expected_amount >= 0.2 * gap_size]
     if not late:
         return ""
     it = max(late, key=lambda x: x.expected_amount)
-    when = day_month(plan.dates[min(it.day, plan.horizon - 1)])
+    when = day_month(plan.dates[min(it.day + it.day_shift, plan.horizon - 1)])  # та же дата, что и в советах
     return (f" Если {it.counterparty} заплатит позже ({rub(it.expected_amount)} ожидается {when}, "
             f"{source_label(it)}), нехватка будет больше.")
 
@@ -226,13 +252,14 @@ def _gap_reason(state: "ForecastState", plan: "Plan", k: int, p50: np.ndarray, p
             txt = (f"{day_month(d)} {verb} {pays}. Обычно денег хватает (к этому дню ожидается около "
                    f"{rub(before)}), но если поступления будут ниже обычного, на этот платёж может не хватить.")
     else:
-        txt = (f"В ближайшие {plural_days(k + 1)} расходы больше поступлений: к {day_month(d)} остаток "
+        when = "Завтра" if k == 0 else f"В ближайшие {plural_days(k + 1)}"
+        txt = (f"{when} расходы больше поступлений: к {day_month(d)} остаток "
                f"может опуститься до {rub(min(p10[k], p50[k]))}.")
     if b is not None and b - k >= 7 and shortfall > 0 and p50[b] < p50[k]:
         txt += (f" Дальше расходы продолжают превышать поступления: к {day_month(plan.dates[b])} "
                 f"нехватка может дойти до {rub(shortfall)}.")
     txt += _late_client_text(plan, k, max(1.0, abs(min(p10[k], p50[k]) - thr)))
-    return txt + " " + _prob_text(prob)
+    return txt + " " + _prob_text(prob) + _short_note(state)
 
 
 def _comfort_reason(state: "ForecastState", plan: "Plan", k: int, p50: np.ndarray, prob: float,
@@ -270,7 +297,9 @@ def _recommendations(state: "ForecastState", plan: "Plan", k: int, a: int, b: in
         recs.append(f"Можно попросить {it.counterparty} оплатить {rub(it.expected_amount)} до {day_month(d)} — "
                     f"сейчас оплата ожидается {day_month(when)} ({source_label(it)}).")
     # 2. перенести платёж, который можно перенести (не зарплату и не налоги)
-    movable = [it for it in plan.items if it.direction == "out" and it.movable and a - 3 <= it.day + it.day_shift <= b]
+    # дивиденды и выплаты владельцу — не «платёж контрагенту»: отсрочку по ним не советуем
+    movable = [it for it in plan.items if it.direction == "out" and it.movable and a - 3 <= it.day + it.day_shift <= b
+               and not OWNER_FLOW_RE.search(f"{it.counterparty} {it.name}")]
     mandatory_near = any((it.category in ("payroll", "taxes") or it.kind == "tax")
                          and a - 3 <= it.day + it.day_shift <= b for it in plan.items)
     if movable:
@@ -285,10 +314,18 @@ def _recommendations(state: "ForecastState", plan: "Plan", k: int, a: int, b: in
     if gap and shortfall > 0 and plan.start_balance < 0:
         recs.append(f"Счёт уже в минусе: можно обсудить с банком лимит овердрафта не меньше "
                     f"{rub(_round_up(shortfall))} или вернуть деньги со счетов в других банках.")
+    elif gap and shortfall > 0 and state.mode != "full":
+        recs.append("История короткая, поэтому точную сумму назвать нельзя: если денег всё же не хватит, "
+                    "заранее обсудите с банком овердрафт и уточните ожидаемые оплаты клиентов.")
     elif gap and shortfall > 0:
         days = max(3, (b - a) + 3)
+        # не больше нужного до нуля и не больше трёх месячных расходов бизнеса
+        cap = 3 * 30 * float(state.settings.get("rate_out", 0.0)) or shortfall
+        amount = _round_up(min(shortfall, cap))
+        tail = (" Разброс прогноза большой — сначала уточните ожидаемые оплаты клиентов."
+                if shortfall > cap else " Заранее сравните стоимость в банке.")
         recs.append(f"Если перенести платежи не получится, можно рассмотреть овердрафт или кредит примерно на "
-                    f"{rub(_round_up(shortfall))} на {plural_days(days)} — заранее сравните стоимость в банке.")
+                    f"{rub(amount)} на {plural_days(days)}.{tail}")
     # 4. мягкие варианты
     if len(recs) < 3:
         recs.append("Можно попросить предоплату у клиентов по новым заказам и выставить счета пораньше.")

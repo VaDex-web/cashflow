@@ -91,3 +91,43 @@ def test_logs_have_no_inn_names_or_amounts():
     for name in set(df["counterparty_name"]):
         assert name not in text
     assert "₽" not in text
+
+
+def _closed(df: pd.DataFrame) -> pd.DataFrame:
+    """Последней операцией весь остаток переведён на другой счёт в связи с закрытием."""
+    d = df.copy()
+    last = pd.to_datetime(d["date"]).max() + pd.Timedelta(days=1)
+    bal = float(d["balance_eod"].iloc[-1])
+    row = {"date": last, "amount": bal, "direction": "out", "counterparty_name": "ООО «Ромашка»",
+           "counterparty_inn": "0012345678", "purpose": "Перечисление остатка денежных средств в связи с закрытием "
+           "счета на счет в АО «Банк-4»", "true_category": "transfers", "balance_eod": 0.0}
+    return pd.concat([d, pd.DataFrame([row])], ignore_index=True)
+
+
+def test_closed_account_gives_warning_instead_of_gap():
+    r = forecast(_closed(base_df()), [], 30, **FAST)
+    _ok(r)
+    assert r["risks"] == []
+    assert any("счёт закрыт" in w for w in r["warnings"])
+    assert all(p["balance_p50"] == p["balance_low"] == p["balance_high"] == 0 for p in r["daily"])
+
+
+def test_warnings_for_missing_inn_and_empty_purposes():
+    d = base_df(days=200).copy()
+    d["counterparty_inn"] = ""
+    d.loc[d.index[::2], "purpose"] = ""
+    w = " ".join(forecast(d, [], 30, **FAST)["warnings"])
+    assert "нет ИНН контрагента" in w and "пустое назначение" in w
+
+
+def test_risk_text_matches_badge_and_short_history_is_cautious():
+    df = base_df(days=60)
+    d = (last_date(df) + timedelta(days=5)).date().isoformat()
+    ev = [{"id": "big", "type": "manual", "direction": "out", "amount": 2.5e7, "date": d, "note": "оборудование"}]
+    r = forecast(df, ev, 30, **FAST)
+    gap = [k for k in r["risks"] if k["date"] == d][0]
+    assert f"Вероятность — {int(gap['probability'] * 100 + 0.5)}%." in gap["reason"]     # как на бейдже
+    assert "уверенность низкая" in gap["reason"]
+    assert not any("кредит примерно на" in x for x in gap["recommendations"])          # без суммы кредита
+    assert any("точную сумму назвать нельзя" in x for x in gap["recommendations"])
+    assert "В ближайшие 1 день" not in " ".join(k["reason"] for k in r["risks"])

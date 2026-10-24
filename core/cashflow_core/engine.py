@@ -169,6 +169,30 @@ def normalize_events(events: list[dict[str, Any]] | None, start: date) -> tuple[
     return out, warns
 
 
+_CLOSING_RE = r"закрыти\w*\s+(?:расчетного\s+)?сч[её]т|в\s+связи\s+с\s+закрытием|перечислени\w*\s+остатка"
+
+
+def _account_closed(tx: pd.DataFrame, balance: float) -> bool:
+    """Счёт закрыт: остаток 0 ₽ и в последние дни выписки — перевод остатка или закрытие счёта."""
+    if abs(balance) >= 1.0 or not len(tx):
+        return False
+    d = pd.to_datetime(tx["date"])
+    recent = tx[d >= d.max() - pd.Timedelta(days=3)]
+    return bool(recent["purpose"].fillna("").str.contains(_CLOSING_RE, case=False, regex=True).any())
+
+
+def _operating_rates(tx: pd.DataFrame, as_of: date, hist_days: int) -> tuple[float, float]:
+    """Средние дневные поступления и списания бизнеса за 90 дней — без переводов между своими счетами,
+    займов и операций с владельцем. Нужны для разумных границ сумм (короткая история, советы о кредите)."""
+    if not len(tx):
+        return 0.0, 0.0
+    d = tx[pd.to_datetime(tx["date"]) > pd.Timestamp(as_of) - pd.Timedelta(days=90)]
+    d = d[~d["category"].isin(RESCUE_INFLOW_CATEGORIES) & ~owner_flow_mask(d)]
+    span = max(1, min(90, hist_days))
+    return (float(d.loc[d["direction"] == "in", "amount"].sum()) / span,
+            float(d.loc[d["direction"] == "out", "amount"].sum()) / span)
+
+
 def _residual_series(df: pd.DataFrame, daily: pd.DataFrame, exclude_ids: set[str],
                      exclude_tax: bool) -> tuple[pd.Series, pd.Series]:
     d = df[~df["tx_id"].isin(exclude_ids)]
@@ -273,6 +297,11 @@ def build_state(
     start_balance = float(daily["balance_reported"].iloc[-1]) if daily["balance_reported"].notna().any() \
         else float(daily["balance"].iloc[-1])
     hist_days = len(daily)
+    closed = _account_closed(tx, start_balance)
+    if closed:
+        warnings.append("Похоже, счёт закрыт: остаток 0 ₽, а последней операцией остаток денег переведён на другой "
+                        "счёт. Разрывы по нему не прогнозируем — загрузите выписку действующего счёта.")
+    rate_in, rate_out = _operating_rates(tx, as_of_d, hist_days)
 
     if hist_days < 14 or len(tx) < 10:
         mode = "minimal"
@@ -357,7 +386,8 @@ def build_state(
         models=models, err_in=e_in, err_out=e_out, err_scale=scale, events=ev, mode=mode, warnings=warnings,
         settings={"horizon": horizon, "n_sims": int(n_sims), "seed": int(seed), "threshold": float(threshold),
                   "model": model, "interval_scale": float(INTERVAL_SCALE if interval_scale is None else interval_scale),
-                  "comfort_balance": comfort, "comfort_source": comfort_src},
+                  "comfort_balance": comfort, "comfort_source": comfort_src, "account_closed": closed,
+                  "rate_in": rate_in, "rate_out": rate_out},
         model_scores=scores, fitted_as_of=as_of_d,
         hist_min_balance=float(daily["balance"].min()), excluded_tax_from_residual=exclude_tax,
     )
@@ -391,8 +421,9 @@ def build_plan(state: ForecastState, horizon: int | None = None) -> Plan:
     start = state.as_of + timedelta(days=1)
     end = start + timedelta(days=H - 1)
     items: list[PlannedItem] = []
+    closed = bool(state.settings.get("account_closed"))
 
-    for p in state.patterns:
+    for p in ([] if closed else state.patterns):
         for nom, exp in p.schedule(end):
             day = (exp - start).days
             if day < 0:
@@ -409,7 +440,7 @@ def build_plan(state: ForecastState, horizon: int | None = None) -> Plan:
                 cv=min(0.5, max(0.03, p.amount_cv)), prob_occur=prob, delay_prob=delay,
                 movable=p.category in MOVABLE_CATEGORIES, ref=p.key))
 
-    for t in state.tax_model.items(start, end):
+    for t in ([] if closed else state.tax_model.items(start, end)):
         items.append(PlannedItem(
             id=f"tax:{t['date'].isoformat()}", day=(t["date"] - start).days, direction="out", amount=t["amount"],
             category="taxes", kind="tax", name=f"квартальный налоговый платёж ({state.tax_model.regime.get('label', '')})",
@@ -448,10 +479,10 @@ def build_plan(state: ForecastState, horizon: int | None = None) -> Plan:
             delay_prob=delay, movable=e["direction"] == "out" and e["type"] in ("contract", "invoice", "manual"),
             ref=e["id"]))
 
-    r_in, r_out = _residual_forecast(state, H)
+    r_in, r_out = (np.zeros(H), np.zeros(H)) if closed else _residual_forecast(state, H)
     return Plan(start=start, horizon=H, start_balance=state.start_balance, items=items, res_in=r_in, res_out=r_out,
                 in_mult=np.ones(H), out_mult=np.ones(H), extra=np.zeros(H),
-                shrink=_shrink_offset(state, items, r_in, r_out, H))
+                shrink=None if closed else _shrink_offset(state, items, r_in, r_out, H))
 
 
 def _shrink_offset(state: ForecastState, items: list[PlannedItem], r_in: np.ndarray, r_out: np.ndarray,
@@ -529,7 +560,10 @@ def simulate(state: ForecastState, plan: Plan, n_sims: int | None = None, seed: 
 
     rng0 = np.random.default_rng([seed, 0])
     e_in, e_out = state.err_in, state.err_out
-    if len(e_in) >= 5 and e_in.shape[1] >= H:
+    if state.settings.get("account_closed"):
+        res_in = np.zeros((n, H))
+        res_out = np.zeros((n, H))
+    elif len(e_in) >= 5 and e_in.shape[1] >= H:
         pick = rng0.integers(0, len(e_in), n)
         # калибровка ширины (k) растягивает только непрерывный шум модели потоков, а не дискретные
         # события (задержку клиента и т.п.) — поэтому сценарии всегда сдвигают риск в правильную сторону
@@ -537,6 +571,13 @@ def simulate(state: ForecastState, plan: Plan, n_sims: int | None = None, seed: 
         scale = k * state.err_scale * np.exp(0.1 * rng0.standard_normal(n))[:, None]
         res_in = (plan.res_in[None, :] + scale * e_in[pick, :H]) * plan.in_mult[None, :]
         res_out = (plan.res_out[None, :] + scale * e_out[pick, :H]) * plan.out_mult[None, :]
+    elif state.mode != "full" and len(hist := _history_change_paths(state, H)) >= 10:
+        # мало истории для ошибок модели, но хватает на окна по H дней: разброс — как менялся сам остаток
+        # бизнеса (без займов, переводов и операций с владельцем) за такие же сроки в прошлом
+        pick = rng0.integers(0, len(hist), n)
+        res_in = np.tile(plan.res_in * plan.in_mult, (n, 1))
+        res_out = np.tile(plan.res_out * plan.out_mult, (n, 1))
+        res_in = res_in + np.diff(np.concatenate([np.zeros((n, 1)), hist[pick]], axis=1), axis=1)
     else:
         # мало истории для эмпирических ошибок — нормальный шум по дневной волатильности
         sd_in = float(state.res_in.std()) if len(state.res_in) > 1 else 0.0
@@ -552,7 +593,45 @@ def simulate(state: ForecastState, plan: Plan, n_sims: int | None = None, seed: 
     balances = plan.start_balance + np.cumsum(total, axis=1)
     if plan.shrink is not None:
         balances = balances - plan.shrink[None, :H]
+    if state.mode != "full":
+        balances = _clamp_short(state, plan, balances)
     return SimResult(balances=balances, det_in=det_in, det_out=det_out)
+
+
+def _history_change_paths(state: ForecastState, H: int) -> np.ndarray:
+    """Изменения «операционного» остатка (без займов, переводов, операций с владельцем) за 1…H дней
+    со всех прошлых дат: матрица (окна × H), по каждому дню центрирована по медиане."""
+    tx = state.df
+    if not len(tx) or len(state.daily) < H + 10:
+        return np.zeros((0, H))
+    op = tx[~((tx["direction"] == "in") & tx["category"].isin(RESCUE_INFLOW_CATEGORIES)) & ~owner_flow_mask(tx)]
+    net = op.groupby(pd.to_datetime(op["date"]))["signed_amount"].sum().reindex(state.daily.index).fillna(0.0)
+    b = np.concatenate([[0.0], np.cumsum(net.to_numpy(dtype=float))])
+    paths = np.array([b[s + 1:s + H + 1] - b[s] for s in range(len(b) - H)])
+    return paths - np.median(paths, axis=0)
+
+
+def _known_net(plan: Plan) -> np.ndarray:
+    """Накопленный ожидаемый итог событий и сценарных добавок (то, что известно, а не угадано по истории)."""
+    H = plan.horizon
+    net = plan.extra[:H].astype(float).copy()
+    for it in plan.items:
+        d = it.day + it.day_shift
+        if it.kind == "event" and 0 <= d < H:
+            net[d] += (1.0 if it.direction == "in" else -1.0) * it.expected_amount * it.prob_occur
+    return np.cumsum(net)
+
+
+def _clamp_short(state: ForecastState, plan: Plan, balances: np.ndarray) -> np.ndarray:
+    """Короткая история: хвосты не шире «совсем без поступлений» и «совсем без списаний» (с запасом 20%).
+
+    Иначе шум по нескольким неделям истории даёт диапазоны в десятки миллионов при остатке в несколько."""
+    H = balances.shape[1]
+    h = np.arange(1, H + 1)
+    base = plan.start_balance + _known_net(plan)
+    lo = base - 1.2 * float(state.settings.get("rate_out", 0.0)) * h
+    hi = base + 1.2 * float(state.settings.get("rate_in", 0.0)) * h
+    return np.clip(balances, lo[None, :], np.maximum(hi, lo)[None, :])
 
 
 # --------------------------------------------------------------------------- result
