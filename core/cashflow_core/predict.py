@@ -65,9 +65,9 @@ def _paths(out: str | Path) -> tuple[Path, Path]:
     return stem.with_suffix(".csv"), stem.with_suffix(".json")
 
 
-def predict(path: str | Path, out: str | Path, horizon: int = 30, seed: int = 42, n_sims: int = 2000,
-            workers: int = 1) -> tuple[Path, Path, list[dict[str, Any]]]:
-    comps = discover(path)
+def predict(path: str | Path | list[tuple[str, Any]], out: str | Path, horizon: int = 30, seed: int = 42,
+            n_sims: int = 2000, workers: int = 1) -> tuple[Path, Path, list[dict[str, Any]]]:
+    comps = discover(path) if isinstance(path, (str, Path)) else list(path)
     jobs = [(cid, src, int(horizon), int(seed), int(n_sims)) for cid, src in comps]
     if workers > 1 and len(jobs) > 1:
         with make_pool(workers) as ex:

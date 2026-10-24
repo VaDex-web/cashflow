@@ -48,6 +48,11 @@ python -m cashflow_core.evaluate data/raw --workers 4 --split core/reports/split
 
 # имитация контрольного датасета: последние 30 дней каждой выписки — факт
 python -m cashflow_core.control data/raw --workers 4 --split core/reports/split.json --name raw
+
+# чек-поинт одной командой: шаги расчёта в консоли, прогноз и риски, Accuracy / Precision / Recall / F1 /
+# MAE / MSE / Brier и матрица ошибок по бэктесту; файлы predictions.csv, predictions.json, checkpoint_metrics.json
+python scripts/run_checkpoint.py data/raw/statements/C001.csv
+python scripts/run_checkpoint.py data/raw --workers 8
 ```
 
 Если `python -m cashflow_core…` не находит модуль, выполните из корня `export PYTHONPATH=core`.

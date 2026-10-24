@@ -17,3 +17,6 @@ node_modules/
 
 # производные от датасета организаторов (scripts/make_demo_statement.py)
 data/demo/
+/predictions.csv
+/predictions.json
+/checkpoint_metrics.json
