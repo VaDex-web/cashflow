@@ -26,6 +26,8 @@ mkdir -p data/raw && unzip cashflow_dataset_participants.zip -d data/raw
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r api/requirements.txt && pip install -e core
 uvicorn api.main:app --port 8000          # http://localhost:8000/docs
+# если `python -m cashflow_core…` пишет «No module named 'cashflow_core'» (на macOS `pip install -e`
+# иногда не подхватывается) — из корня репозитория: export PYTHONPATH=core
 
 # 2. интерфейс (в другом терминале)
 cd web && npm ci && npm run dev           # http://localhost:5173 → «Посмотреть демо»
@@ -40,9 +42,15 @@ python -m pytest api/tests -q             # тесты API (в т.ч. на на�
 # прогноз для контрольного датасета: CSV (company_id;date;balance_forecast;balance_low;balance_high) + JSON с рисками
 python -m cashflow_core.predict data/raw/all_operations.csv --horizon 30 --out predictions.csv
 
-# качество прогноза на любом датасете в формате организаторов (бэктест rolling origin, 3 модели)
-python -m cashflow_core.evaluate data/raw --workers 4
+# качество на любом датасете в формате организаторов: rolling origin, 4 подхода, включая «остаток не изменится»;
+# ошибка — по фактическому остатку, отдельно dev и holdout
+python -m cashflow_core.evaluate data/raw --workers 4 --split core/reports/split.json --name raw
+
+# имитация контрольного датасета: последние 30 дней каждой выписки — факт
+python -m cashflow_core.control data/raw --workers 4 --split core/reports/split.json --name raw
 ```
+
+Если `python -m cashflow_core…` не находит модуль, выполните из корня `export PYTHONPATH=core`.
 
 ## Публичное развёртывание (Docker + HTTPS)
 
@@ -51,5 +59,9 @@ cp .env.example .env        # DOMAIN=<IP>.sslip.io или свой домен, J
 docker compose up -d --build
 bash scripts/smoke_test.sh https://<DOMAIN>
 ```
+
+Проверка на своём компьютере: `DOMAIN=localhost` в `.env`, затем `INSECURE=1 bash scripts/smoke_test.sh https://localhost`
+(Caddy выдаёт для localhost самоподписанный сертификат). Секреты (`JWT_SECRET`, пароли `API_USERS`) — только в `.env`
+на сервере, в репозиторий они не попадают (`.env` в `.gitignore`).
 
 Пошагово для чистой Ubuntu (Aeza): [`docs/deploy.md`](docs/deploy.md). Демо-вход в один клик — кнопка «Посмотреть демо»: у каждого гостя своя копия демо-компании с готовым прогнозом.

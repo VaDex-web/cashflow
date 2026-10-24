@@ -16,7 +16,7 @@ ok() { echo "✓ $*"; }
 json() { python3 -c "import json,sys; d=json.load(sys.stdin); print($1)"; }
 
 # 1. HTTPS и главная страница
-code=$("${CURL[@]}" -o /tmp/smoke_index.html -w '%{http_code}' "$BASE/") || fail "сайт недоступен или сертификат HTTPS недействителен: $BASE"
+code=$("${CURL[@]}" -o /tmp/smoke_index.html -w '%{http_code}' "$BASE/") || fail "сайт недоступен или сертификат HTTPS недействителен: $BASE$( [[ "$BASE" == *localhost* && "${INSECURE:-0}" != "1" ]] && echo " (локально сертификат самоподписанный — запустите с INSECURE=1)")"
 [[ "$code" == "200" ]] || fail "главная страница: HTTP $code"
 grep -q '<div id="root">' /tmp/smoke_index.html || fail "главная страница отдала не интерфейс"
 ok "главная страница по HTTPS"
