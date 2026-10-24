@@ -127,7 +127,8 @@ def find_risks(state: "ForecastState", plan: "Plan", sim: "SimResult", with_kind
             "probability": round(min(1.0, max(0.0, prob)), 3),
             "severity": severity(prob, k + 1),
             "reason": _gap_reason(state, plan, k, p50, p10, prob, thr, b, shortfall),
-            "recommendations": _recommendations(state, plan, k, a, b, shortfall, gap=True),
+            "recommendations": _recommendations(state, plan, k, a, b, shortfall, gap=True,
+                                                need=max(0.0, thr - float(p50[a:b + 1].min()))),
         }))
 
     if comfort > thr:
@@ -249,7 +250,7 @@ def _round_up(x: float) -> float:
 
 
 def _recommendations(state: "ForecastState", plan: "Plan", k: int, a: int, b: int, shortfall: float,
-                     gap: bool) -> list[str]:
+                     gap: bool, need: float = 0.0) -> list[str]:
     recs: list[str] = []
     d = plan.dates[k]
     end_ep = plan.dates[b] + timedelta(days=1)
@@ -280,12 +281,14 @@ def _recommendations(state: "ForecastState", plan: "Plan", k: int, a: int, b: in
                     "заранее обсудите с банком овердрафт и уточните ожидаемые оплаты клиентов.")
     elif gap and shortfall > 0:
         days = max(3, (b - a) + 3)
-        cap = 3 * 30 * float(state.settings.get("rate_out", 0.0)) or shortfall
-        amount = _round_up(min(shortfall, cap))
-        tail = (" Разброс прогноза большой — сначала уточните ожидаемые оплаты клиентов."
-                if shortfall > cap else " Заранее сравните стоимость в банке.")
-        recs.append(f"Если перенести платежи не получится, можно рассмотреть овердрафт или кредит примерно на "
-                    f"{rub(amount)} на {plural_days(days)}.{tail}")
+        cap = 3 * 30 * float(state.settings.get("rate_out", 0.0)) or float("inf")
+        amount = need if need > 0 else shortfall
+        if amount > cap:
+            recs.append("Если перенести платежи не получится: нехватка больше трёх месячных расходов бизнеса, поэтому "
+                        "кредитом её разумно не закрыть — можно пересмотреть крупные платежи и их сроки.")
+        else:
+            recs.append(f"Если перенести платежи не получится, можно рассмотреть овердрафт или кредит примерно на "
+                        f"{rub(_round_up(amount))} на {plural_days(days)}. Заранее сравните стоимость в банке.")
     if len(recs) < 3:
         recs.append("Можно попросить предоплату у клиентов по новым заказам и выставить счета пораньше.")
     if len(recs) < 2:

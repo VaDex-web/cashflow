@@ -3,7 +3,7 @@ from datetime import timedelta
 
 import pandas as pd
 
-from cashflow_core import forecast
+from cashflow_core import forecast, load_statement
 from datagen import generate_statement
 from helpers import FAST, base_df, last_date
 
@@ -129,3 +129,26 @@ def test_risk_text_matches_badge_and_short_history_is_cautious():
     assert not any("кредит примерно на" in x for x in gap["recommendations"])
     assert any("точную сумму назвать нельзя" in x for x in gap["recommendations"])
     assert "В ближайшие 1 день" not in " ".join(k["reason"] for k in r["risks"])
+
+
+def _credit(df, amount):
+    import re
+
+    d = (last_date(df) + timedelta(days=12)).date().isoformat()
+    ev = [{"id": "big", "type": "manual", "direction": "out", "amount": amount, "date": d, "note": "оборудование"}]
+    r = forecast(df, ev, 30, **FAST)
+    gap = [k for k in r["risks"] if k["date"] == d][0]
+    need = -min(p["balance_p50"] for p in r["daily"] if p["date"] >= d)
+    text = " ".join(gap["recommendations"])
+    m = re.search(r"кредит примерно на ([\d\s]+)₽", text)
+    return need, gap, text, float(re.sub(r"\D", "", m.group(1))) if m else None
+
+
+def test_credit_advice_is_what_is_needed_not_worst_case():
+    df = base_df()
+    bal = float(load_statement(df)["balance_eod"].iloc[-1])
+    need, gap, _, amount = _credit(df, bal * 1.15)
+    assert amount is not None and need <= amount <= need * 1.1 + 100_000
+    assert amount <= gap["shortfall_amount"] + 100_000
+    need, _, text, amount = _credit(df, 3e7)
+    assert amount is None and "кредитом её разумно не закрыть" in text
