@@ -1,6 +1,8 @@
 """Регулярные платежи: период, сдвиг на выходные, плотные потоки."""
 from datetime import date
 
+import pandas as pd
+
 from cashflow_core import categorize, detect_recurring, load_statement
 from cashflow_core.calendar_ru import is_business_day, shift_to_business_day
 from cashflow_core.recurring import find_patterns
@@ -43,3 +45,38 @@ def test_holiday_shift_rules():
     assert shift_to_business_day(date(2026, 1, 10), "backward") == date(2025, 12, 30)
     assert shift_to_business_day(date(2026, 2, 28), "forward") == date(2026, 3, 2)
     assert not is_business_day(date(2026, 11, 4))
+
+
+def _enp_statement(late: dict[int, int], as_of: date) -> pd.DataFrame:
+    """ЕНП 28-го (перенос вперёд) за 24 месяца; ``late`` — {номер месяца: на сколько дней позже}."""
+    rows, bal = [], 5_000_000.0
+    for k in range(24):
+        y, m = divmod(2024 * 12 + 9 + k, 12)
+        d = shift_to_business_day(date(y, m + 1, 28), "forward")
+        d = date.fromordinal(d.toordinal() + late.get(k, 0))
+        if d > as_of:
+            break
+        bal -= 300_000 + 1_000 * k
+        rows.append({"operation_date": d.isoformat(), "amount": 300_000 + 1_000 * k, "direction": "Списание",
+                     "counterparty_inn": "7727406020", "counterparty_name": "Казначейство России (ФНС России)",
+                     "payment_purpose": "Единый налоговый платеж", "balance_eod": bal})
+    for k in range(0, 720, 3):  # фон: выручка, чтобы выписка была похожа на настоящую
+        d = date.fromordinal(date(2024, 10, 1).toordinal() + k)
+        if d <= as_of:
+            rows.append({"operation_date": d.isoformat(), "amount": 120_000, "direction": "Поступление",
+                         "counterparty_inn": "6161000000", "counterparty_name": "ООО «Клиент»",
+                         "payment_purpose": "Оплата по счёту", "balance_eod": bal})
+    return pd.DataFrame(rows).sort_values("operation_date")
+
+
+def test_enp_is_28th_even_with_late_payments():
+    # как у C022/C041: в части месяцев ЕНП ушёл 29–30-го, один раз — 2-го следующего месяца
+    as_of = date(2026, 9, 28)
+    c = categorize(load_statement(_enp_statement({2: 5, 7: 1, 11: 2, 15: 1}, as_of)))
+    tax = [p for p in find_patterns(c, as_of) if p.category == "taxes"]
+    assert len(tax) == 1
+    assert tax[0].anchor == 28 and tax[0].shift_rule == "forward"
+    assert "~28-го числа" in tax[0].name
+    assert tax[0].next_date(as_of) == date(2026, 10, 28)
+    rec = [r for r in detect_recurring(c, as_of) if r["name"].startswith("Налоги")]
+    assert rec and rec[0]["next_date"] == "2026-10-28"

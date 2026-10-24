@@ -41,6 +41,8 @@ AGGREGATE_CATEGORIES = ("payroll", "taxes")
 #: Категории, где регулярность не ищем (переводы самому себе непредсказуемы по смыслу).
 SKIP_CATEGORIES = ("transfers",)
 MIN_CONFIDENCE = 0.3
+#: Срок уплаты ЕНП — 28-е число, с выходного переносится на следующий рабочий день (НК РФ, ст. 6.1).
+TAX_ANCHOR = 28
 
 _DEFAULT_SHIFT = {"payroll": "backward", "taxes": "forward"}
 
@@ -231,7 +233,7 @@ def _detect_monthly(dates: list[date], amounts: list[float], as_of: date, catego
         if len(remaining) < 3:
             break
         sub = [dates[i] for i in remaining]
-        best = None
+        best = tax28 = None
         for a in range(1, 32):
             assign = _assign_monthly(sub, a)
             if len(assign) < 3:
@@ -242,13 +244,22 @@ def _detect_monthly(dates: list[date], amounts: list[float], as_of: date, catego
             nom_last = _from_month_index(_month_index(as_of), a)
             if shift_to_business_day(nom_last, "forward") > as_of and _month_index(as_of) not in assign:
                 span -= 1
-            coverage = len(assign) / max(span, 1)
+            # больше 100% не бывает: иначе платёж 28-го «выигрывает» как опоздавший платёж 1-го числа
+            coverage = min(1.0, len(assign) / max(span, 1))
             offs = [abs(_offset(sub[assign[m]], _from_month_index(m, a))) for m in mis]
             score = len(assign) * coverage - 0.15 * float(np.mean(offs))
+            cand = (score, a, assign, coverage, offs)
             if best is None or score > best[0]:
-                best = (score, a, assign, coverage, offs)
+                best = cand
+            if category == "taxes" and a == TAX_ANCHOR:
+                tax28 = cand
         if best is None or best[3] < 0.7:
             break
+        # налоги: если 28-е объясняет почти все платежи — берём законный срок, а не похожий день
+        # (часть ЕНП платят на 5–10 дней раньше срока — такие месяцы закрывает поиск ранних платежей ниже)
+        if category == "taxes" and not found and tax28 is not None and tax28[3] >= 0.6 \
+                and len(tax28[2]) >= 0.7 * len(best[2]):
+            best = tax28
         _, a, assign, coverage, offs = best
         idx = [remaining[assign[m]] for m in sorted(assign)]
         found.append({"anchor": a, "idx": idx, "coverage": coverage, "offsets": offs,
@@ -364,7 +375,7 @@ def find_patterns(df: pd.DataFrame, as_of: date | None = None, *, min_confidence
             pd_amts = [amounts[i] for i in idx]
             if kind == "monthly":
                 noms = info["noms"]
-                rule = _shift_rule(pd_dates, noms, category)
+                rule = "forward" if category == "taxes" else _shift_rule(pd_dates, noms, category)
                 last_nom = noms[-1]
             else:
                 rule = "forward"
@@ -384,20 +395,25 @@ def find_patterns(df: pd.DataFrame, as_of: date | None = None, *, min_confidence
                 timing_mad=float(np.mean(np.abs(offs))) if offs else 0.0,
                 tx_ids=[t for i in idx for t in per_day["ids"].iloc[i]],
             )
-            # Платёж текущего периода мог прийти заметно раньше срока (ЕНП 18-го вместо 28-го):
-            # если в группе есть неучтённый платёж похожей суммы — считаем период оплаченным.
-            sch = pat.schedule(as_of + timedelta(days=period))
-            if sch:
+            # Платёж периода мог прийти заметно раньше срока (ЕНП 18-го вместо 28-го), и так —
+            # несколько месяцев подряд: неучтённый платёж похожей суммы закрывает очередной период.
+            window = 20 if kind in ("monthly", "quarterly") else 3
+            lo, hi = (0.3, 3.0) if category == "taxes" else (0.5, 1.6)  # ЕНП сильно меняется от квартала к кварталу
+            for _ in range(24):
+                sch = pat.schedule(as_of + timedelta(days=period))
+                if not sch:
+                    break
                 exp = sch[0][1]
-                window = 20 if kind in ("monthly", "quarterly") else 3
                 ref = pat.amount_forecast
-                for i, dd in enumerate(dates):
-                    if (dd > pd_dates[-1] and dd not in group_assigned and exp - timedelta(days=window) <= dd <= as_of
-                            and ref > 0 and 0.5 <= amounts[i] / ref <= 1.6):
-                        pat.register_payment(dd, amounts[i])
-                        pat.tx_ids.extend(per_day["ids"].iloc[i])
-                        group_assigned.add(dd)
-                        break
+                hit = next((i for i, dd in enumerate(dates)
+                            if dd > max(pat.dates) and dd not in group_assigned
+                            and exp - timedelta(days=window) <= dd <= as_of
+                            and ref > 0 and lo <= amounts[i] / ref <= hi), None)
+                if hit is None:
+                    break
+                pat.register_payment(dates[hit], amounts[hit])
+                pat.tx_ids.extend(per_day["ids"].iloc[hit])
+                group_assigned.add(dates[hit])
             if pat.confidence >= min_confidence and (not active_only or pat.is_active(as_of)):
                 patterns.append(pat)
 
