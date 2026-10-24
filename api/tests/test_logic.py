@@ -203,6 +203,22 @@ def test_log_masking():
     assert "0012345678" not in s and "001234567890" not in s
     assert "1 234 567" not in s and "250000" not in s and "Ромашка" not in s and "a@b.ru" not in s
     assert "GET /api/companies/S02/forecast 200 15ms" == mask("GET /api/companies/S02/forecast 200 15ms")
+    assert mask("Uvicorn running on http://127.0.0.1:8000") == "Uvicorn running on http://127.0.0.1:8000"
+
+
+def test_access_log_keeps_status_and_time():
+    import logging
+
+    from api.logging_setup import SensitiveDataFilter
+
+    def run(name, msg):
+        rec = logging.LogRecord(name, logging.INFO, __file__, 1, msg, (), None)
+        SensitiveDataFilter().filter(rec)
+        return rec.msg
+
+    assert run("api.http", "POST /api/companies 200 123ms") == "POST /api/companies 200 123ms"
+    assert run("api.http", "GET /api/companies/x/forecast 401 1534ms") == "GET /api/companies/x/forecast 401 1534ms"
+    assert "<сумма>" in run("api.service", "оплата 200 123 ₽") and "0012345678" not in run("api.http", "GET /x/0012345678 200 1ms")
 
 
 def test_log_filter_on_record(caplog):

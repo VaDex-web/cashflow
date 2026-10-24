@@ -7,21 +7,23 @@ import time
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 
-_PATTERNS = [
+_SECRETS = [
     (re.compile(r"(?i)bearer\s+[\w.~+/=-]+"), "Bearer <токен>"),
     (re.compile(r"\beyJ[\w-]{5,}\.[\w-]{5,}\.[\w-]{5,}"), "<токен>"),
     (re.compile(r"(?<!\d)\d{10}(?:\d{2})?(?!\d)"), "<ИНН>"),
+    (re.compile(r"[\w.+-]+@[\w-]+\.[\w.]+"), "<email>"),
+]
+_PATTERNS = _SECRETS + [
     (re.compile(r"«[^»]{1,120}»"), "«…»"),
     (re.compile(r"\"[^\"]{1,120}\""), "\"…\""),
-    (re.compile(r"[\w.+-]+@[\w-]+\.[\w.]+"), "<email>"),
-    (re.compile(r"(?<![\w/-])\d{1,3}(?:[  ]\d{3})+(?:[.,]\d{1,2})?(?!\d)"), "<сумма>"),
-    (re.compile(r"(?<![\w/-])\d{4,}(?:[.,]\d{1,2})?(?![\w-])"), "<сумма>"),
+    (re.compile(r"(?<![\w/-])\d{1,3}(?:[  ]\d{3})+(?:[.,]\d{1,2})?(?!\d)"), "<сумма>"),
+    (re.compile(r"(?<![\w/:-])\d{4,}(?:[.,]\d{1,2})?(?![\w-])"), "<сумма>"),
     (re.compile(r"(?<![\w/-])\d+[.,]\d{2}(?!\d)"), "<сумма>"),
 ]
 
 
-def mask(text: str) -> str:
-    for rx, repl in _PATTERNS:
+def mask(text: str, secrets_only: bool = False) -> str:
+    for rx, repl in (_SECRETS if secrets_only else _PATTERNS):
         text = rx.sub(repl, text)
     return text
 
@@ -32,7 +34,7 @@ class SensitiveDataFilter(logging.Filter):
             msg = record.getMessage()
         except Exception:
             msg = str(record.msg)
-        record.msg = mask(msg)
+        record.msg = mask(msg, secrets_only=record.name == "api.http")
         record.args = ()
         if record.exc_text:
             record.exc_text = mask(record.exc_text)

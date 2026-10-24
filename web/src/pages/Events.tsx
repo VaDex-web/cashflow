@@ -137,7 +137,7 @@ export function Events() {
           {!ev.loading && !ev.error && list.length === 0 && <Empty icon="📅" title="Нет ожидаемых платежей">Подключите 1С или добавьте платёж вручную.</Empty>}
           {list.length > 0 && (
             <div className="table-wrap">
-              <table className="table">
+              <table className="table table-stack">
                 <thead><tr><th>Дата</th><th>Что</th><th className="r">Сумма</th><th>Источник</th><th>Статус</th></tr></thead>
                 <tbody>
                   {list.map((e) => (
