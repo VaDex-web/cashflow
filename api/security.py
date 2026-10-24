@@ -88,10 +88,17 @@ def current_user(cred: HTTPAuthorizationCredentials | None = Depends(_bearer),
     return username
 
 
-def check_access(company: Company | None, username: str) -> Company:
-    """Компании из датасета и синтетики — общие (демо), загруженные — только владельцу."""
+#: Ответ на попытку изменить общую компанию (датасет, демо): менять можно только свою копию.
+READ_ONLY_MESSAGE = ("Это общая демо-компания: её можно смотреть, но не менять. Изменения сохраняются только "
+                     "в вашей копии — выберите компанию как свою или нажмите «Посмотреть демо».")
+
+
+def check_access(company: Company | None, username: str, write: bool = False) -> Company:
+    """Компании из датасета и синтетики — общие и только для чтения, загруженные и копии — только владельцу."""
     if company is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Компания не найдена — загрузите выписку")
     if company.owner is not None and company.owner != username:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Нет доступа к этой компании")
+    if write and company.owner is None:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, READ_ONLY_MESSAGE)
     return company

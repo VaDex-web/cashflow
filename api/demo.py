@@ -4,6 +4,9 @@
 S02) с подключёнными источниками и посчитанным прогнозом. Его владелец — служебный пользователь, поэтому снаружи
 он недоступен и гости его не меняют. ``POST /api/auth/demo`` создаёт гостя и клонирует в его компанию строки
 шаблона вместе с сохранённым состоянием прогноза — первый экран открывается без пересчёта.
+
+Компании датасета и синтетики — общие и только для чтения: кто выбирает такую компанию как свою, получает
+личную копию (:func:`personal_copy`), поэтому действия одного посетителя не видны другим.
 """
 from __future__ import annotations
 
@@ -87,6 +90,31 @@ def cleanup_guests(session: Session) -> int:
     session.execute(delete(User).where(User.username.in_(names)))
     session.commit()
     return len(names)
+
+
+def personal_copy(session: Session, user: str, src: Company) -> Company:
+    """Личная копия общей компании для пользователя (одна на источник: повторный выбор открывает ту же копию)."""
+    for c in session.scalars(select(Company).where(Company.owner == user, Company.origin == "copy")):
+        if (c.settings or {}).get("dataset_id") == src.id:
+            return c
+    return _clone_company(session, src, f"{src.id.lower()}-{secrets.token_hex(3)}", user, "copy")
+
+
+def personalize_users(session: Session) -> int:
+    """Пользователям из API_USERS с общей компанией (``demo:demo:S02``) — своя копия: общие компании только для чтения."""
+    n = 0
+    for u in list(session.scalars(select(User).where(User.company_id.is_not(None)))):
+        if u.username == SYSTEM_OWNER or u.username.startswith(GUEST_PREFIX):
+            continue
+        try:
+            c = svc.get_company(session, u.company_id, u.username)
+        except Exception:  # noqa: BLE001 — компании нет (файл не найден): оставляем как есть
+            continue
+        if c.owner is None:
+            u.company_id = personal_copy(session, u.username, c).id
+            n += 1
+    session.commit()
+    return n
 
 
 def create_guest(session: Session) -> str:

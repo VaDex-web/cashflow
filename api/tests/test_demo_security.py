@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import logging
 
-from .conftest import ROOT, make_client
+from .conftest import ROOT, SYN, login, make_client, my_company
 
 
 def _demo(client) -> dict[str, str]:
@@ -25,6 +25,47 @@ def test_demo_guests_get_own_copies(stub):
     assert stub.get(f"/api/companies/{ca}/events", headers=b).status_code == 403
     # шаблон демо снаружи недоступен
     assert stub.get("/api/companies/demo-template/forecast", headers=a).status_code == 403
+
+
+def test_shared_companies_are_read_only(stub):
+    """Общие компании (датасет, демо) можно смотреть, но нельзя менять — ни гостю, ни пользователю demo."""
+    g, d = _demo(stub), login(stub)
+    ev = {"type": "manual", "direction": "out", "amount": 9_000_000, "date": "2026-11-01"}
+    for h in (g, d):
+        assert stub.get("/api/companies/S01/forecast", headers=h).status_code == 200      # читать можно
+        assert stub.post("/api/companies/S01/events/parse", headers=h, json={"text": "клиент обещал 300 000 ₽ 20-го"}).status_code == 200
+        r = stub.post("/api/companies/S01/events", headers=h, json=ev)
+        assert r.status_code == 403 and "только в вашей копии" in r.json()["detail"]
+        assert stub.post("/api/companies/S01/events/parse?save=true", headers=h,
+                         json={"text": "клиент обещал 300 000 ₽ 20-го"}).status_code == 403
+        assert stub.patch("/api/companies/S01/events/x", headers=h, json={"date": "2026-11-25"}).status_code == 403
+        assert stub.put("/api/companies/S01/events/x", headers=h, json=ev).status_code == 403
+        assert stub.delete("/api/companies/S01/events/x", headers=h).status_code == 403
+        assert stub.put("/api/companies/S01/settings", headers=h, json={"safety_cushion": 1}).status_code == 403
+        assert stub.post("/api/companies/S01/transactions", headers=h,
+                         json=[{"date": "2026-10-26", "amount": 5, "direction": "out"}]).status_code == 403
+        assert stub.post("/api/companies/S01/integrations/tax_calendar/sync", headers=h).status_code == 403
+        assert stub.post("/api/companies/S01/integrations/invoices/upload", headers=h,
+                         files={"file": ("i.csv", b"number;amount\n1;5\n", "text/csv")}).status_code == 403
+    assert stub.get("/api/companies/S01/events", headers=g).json() == []
+
+
+def test_choosing_shared_company_gives_private_copy(stub):
+    """PUT /me на общую компанию — личная копия: события одного гостя не видят другой гость и demo."""
+    a, b, d = _demo(stub), _demo(stub), login(stub)
+    ca = stub.put("/api/me", headers=a, json={"company_id": "S01"}).json()["company_id"]
+    cb = stub.put("/api/me", headers=b, json={"company_id": "S01"}).json()["company_id"]
+    assert ca.startswith("s01-") and cb.startswith("s01-") and ca != cb
+    ev = {"type": "manual", "direction": "out", "amount": 9_000_000, "date": "2026-11-01", "note": "мусор гостя"}
+    r = stub.post(f"/api/companies/{ca}/events", headers=a, json=ev)
+    assert r.status_code == 200
+    assert stub.delete(f"/api/companies/{ca}/events/{r.json()['id']}", headers=b).status_code == 403   # чужая копия
+    seen = [stub.get(f"/api/companies/{cid}/events", headers=h).json() for cid, h in
+            ((cb, b), ("S01", d), (my_company(stub, d), d))]
+    assert all(e["amount"] != 9_000_000 for evs in seen for e in evs)
+    assert stub.get(f"/api/companies/{ca}/events", headers=d).status_code == 403
+    # у demo своя копия S02, а не общая S02
+    assert my_company(stub, d).startswith("s02-")
 
 
 def test_demo_copy_has_sources_and_ready_forecast(real):

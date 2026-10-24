@@ -114,14 +114,15 @@ def import_known(session: Session, cid: str) -> Company | None:
     return c
 
 
-def get_company(session: Session, cid: str, user: str) -> Company:
+def get_company(session: Session, cid: str, user: str, write: bool = False) -> Company:
+    """Компания с проверкой доступа; ``write=True`` — для изменений (общие компании только для чтения)."""
     from .security import check_access
 
     with _locks[f"import:{cid}"]:
         c = session.get(Company, cid)
         if c is None:
             c = import_known(session, cid)
-    return check_access(c, user)
+    return check_access(c, user, write)
 
 
 def create_company(session: Session, raw: bytes, filename: str, user: str, company: str | None) -> tuple[Company, int, list[str]]:
@@ -199,10 +200,15 @@ def me(session: Session, user: str) -> dict[str, Any]:
 
 
 def set_my_company(session: Session, user: str, cid: str) -> dict[str, Any]:
-    """Демо-переключатель: сделать компанию из датасета (или свою загруженную) «моей»."""
-    get_company(session, cid, user)
+    """Демо-переключатель: сделать компанию «моей». Общая компания (датасет, демо) не меняется —
+    пользователь получает свою копию, и все его изменения остаются в ней."""
+    from .demo import personal_copy
+
+    c = get_company(session, cid, user)
+    if c.owner is None:
+        c = personal_copy(session, user, c)
     u = _user(session, user)
-    u.company_id = cid
+    u.company_id = c.id
     session.commit()
     return me(session, user)
 

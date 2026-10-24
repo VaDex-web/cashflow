@@ -109,7 +109,7 @@ def get_settings_(cid: str, user: str = Depends(current_user), session: Session 
             summary="Изменить комфортный минимум (null — по умолчанию: расходы за 7 дней) и налоговый режим")
 def put_settings(cid: str, body: CompanySettingsIn, user: str = Depends(current_user),
                  session: Session = Depends(get_session)) -> dict[str, Any]:
-    return svc.update_settings(session, svc.get_company(session, cid, user), body.model_dump(exclude_unset=True))
+    return svc.update_settings(session, svc.get_company(session, cid, user, write=True), body.model_dump(exclude_unset=True))
 
 
 # --------------------------------------------------------------------------- прогноз для проверки (без входа)
@@ -207,7 +207,7 @@ def add_transactions(cid: str, rows: list[dict[str, Any]] = Body(..., examples=[
         "date": "2026-10-26", "amount": 2322000, "direction": "in", "counterparty_name": "АО «ДонТрансЛогистика»",
         "counterparty_inn": "", "purpose": "Оплата по счету №205", "balance_eod": 4843314.4}]]),
         user: str = Depends(current_user), session: Session = Depends(get_session)) -> dict[str, Any]:
-    return svc.add_transactions(session, svc.get_company(session, cid, user), rows)
+    return svc.add_transactions(session, svc.get_company(session, cid, user, write=True), rows)
 
 
 @router.get("/companies/{cid}/plan-fact", response_model=list[PlanFactRow], tags=["план-факт"],
@@ -227,14 +227,14 @@ def list_events(cid: str, user: str = Depends(current_user), session: Session = 
 @router.post("/companies/{cid}/events", response_model=Event, status_code=200, tags=["события"], **EXCLUDE_NONE,
              summary="Добавить событие вручную («клиент обещал 300 000 ₽ 20-го»)")
 def add_event(cid: str, body: EventCreate, user: str = Depends(current_user), session: Session = Depends(get_session)) -> Event:
-    return svc.create_event(session, svc.get_company(session, cid, user), body)
+    return svc.create_event(session, svc.get_company(session, cid, user, write=True), body)
 
 
 @router.post("/companies/{cid}/events/parse", response_model=EventParseResult, tags=["события"], **EXCLUDE_NONE,
              summary="Разобрать фразу в событие (save=true — сразу сохранить)")
 def parse_event(cid: str, body: EventParseRequest, save: bool = False, user: str = Depends(current_user),
                 session: Session = Depends(get_session)) -> dict[str, Any]:
-    company = svc.get_company(session, cid, user)
+    company = svc.get_company(session, cid, user, write=save)
     today = svc.as_of_of(session, company) or date.today()   # «сегодня» — дата последней операции выписки
     try:
         ev, understood = parse_text(body.text, today)
@@ -255,25 +255,25 @@ def get_event(cid: str, event_id: str, user: str = Depends(current_user), sessio
               summary="Изменить событие (перенос даты, сумма, статус)")
 def patch_event(cid: str, event_id: str, body: EventUpdate, user: str = Depends(current_user),
                 session: Session = Depends(get_session)) -> Event:
-    return svc.update_event(session, svc.get_company(session, cid, user), event_id, body)
+    return svc.update_event(session, svc.get_company(session, cid, user, write=True), event_id, body)
 
 
 @router.put("/companies/{cid}/events/{event_id}", response_model=Event, tags=["события"], **EXCLUDE_NONE)
 def put_event(cid: str, event_id: str, body: EventCreate, user: str = Depends(current_user),
               session: Session = Depends(get_session)) -> Event:
-    return svc.update_event(session, svc.get_company(session, cid, user), event_id, EventUpdate(**body.model_dump()))
+    return svc.update_event(session, svc.get_company(session, cid, user, write=True), event_id, EventUpdate(**body.model_dump()))
 
 
 @router.delete("/companies/{cid}/events/{event_id}", status_code=204, tags=["события"])
 def remove_event(cid: str, event_id: str, user: str = Depends(current_user), session: Session = Depends(get_session)) -> None:
-    svc.delete_event(session, svc.get_company(session, cid, user), event_id)
+    svc.delete_event(session, svc.get_company(session, cid, user, write=True), event_id)
 
 
 # --------------------------------------------------------------------------- интеграции
 @router.post("/companies/{cid}/integrations/{name}/sync", response_model=SyncResponse, tags=["источники"], **EXCLUDE_NONE,
              summary="Синхронизировать источник: bank | 1c | tax_calendar | registry | contracts | invoices")
 def sync(cid: str, name: IntegrationName, user: str = Depends(current_user), session: Session = Depends(get_session)) -> dict[str, Any]:
-    return svc.sync(session, svc.get_company(session, cid, user), name)
+    return svc.sync(session, svc.get_company(session, cid, user, write=True), name)
 
 
 @router.post("/companies/{cid}/integrations/{name}/upload", response_model=SyncResponse, tags=["источники"], **EXCLUDE_NONE,
@@ -281,7 +281,7 @@ def sync(cid: str, name: IntegrationName, user: str = Depends(current_user), ses
 async def upload_source(cid: str, name: Literal["1c", "contracts", "invoices", "bank", "registry"], request: Request,
                         file: UploadFile = File(...), user: str = Depends(current_user),
                         session: Session = Depends(get_session)) -> dict[str, Any]:
-    company = svc.get_company(session, cid, user)
+    company = svc.get_company(session, cid, user, write=True)
     raw = await read_upload(file, request)
     if not raw.strip():
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Файл пустой.")

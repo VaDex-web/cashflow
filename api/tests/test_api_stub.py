@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from api.schemas import CategoriesResponse, Event, ForecastResult, PlanFactRow, Recurring, Risk, ScenarioResult
 
-from .conftest import SYN, login, make_client
+from .conftest import SYN, login, make_client, my_company
 
 
 def test_health_without_auth(stub):
@@ -25,31 +25,35 @@ def test_login_and_errors(stub):
 
 def test_one_user_one_company_and_demo_mode(stub, auth):
     r = stub.get("/api/companies", headers=auth)
-    assert [c["company_id"] for c in r.json()] == ["S02"]          # после входа — только своя компания
+    mine = [c["company_id"] for c in r.json()]
+    assert len(mine) == 1 and mine[0].startswith("s02-")           # после входа — только своя компания (копия S02)
     s02 = r.json()[0]
     assert set(s02) == {"company_id", "company_name", "legal_form", "industry", "first_operation_date",
                         "last_operation_date", "operations_count"}
-    assert stub.get("/api/me", headers=auth).json() == {"username": "demo", "company_id": "S02",
+    assert stub.get("/api/me", headers=auth).json() == {"username": "demo", "company_id": mine[0],
                                                          "company_name": "ООО «Вектор Бизнес-Сервис»"}
     demo = [c["company_id"] for c in stub.get("/api/companies?demo=true", headers=auth).json()]
-    assert demo[0] == "S02" and {"S01", "S05"} <= set(demo)         # скрытый демо-режим — весь список
+    assert demo[0] == mine[0] and {"S01", "S02", "S05"} <= set(demo)  # скрытый демо-режим — весь список
     other = login(stub, "other")
     assert stub.get("/api/companies", headers=other).json() == []
-    assert stub.put("/api/me", headers=other, json={"company_id": "S05"}).json()["company_id"] == "S05"
-    assert [c["company_id"] for c in stub.get("/api/companies", headers=other).json()] == ["S05"]
+    copy = stub.put("/api/me", headers=other, json={"company_id": "S05"}).json()["company_id"]
+    assert copy.startswith("s05-")                                   # общая S05 не меняется — у other своя копия
+    assert [c["company_id"] for c in stub.get("/api/companies", headers=other).json()] == [copy]
+    assert stub.put("/api/me", headers=other, json={"company_id": "S05"}).json()["company_id"] == copy
 
 
 def test_settings_safety_cushion(stub, auth):
-    st = stub.get("/api/companies/S02/settings", headers=auth).json()
+    cid = my_company(stub, auth)
+    st = stub.get(f"/api/companies/{cid}/settings", headers=auth).json()
     assert st["safety_cushion_custom"] is False and st["safety_cushion"] == st["safety_cushion_default"] > 0
     assert st["tax_regime_estimated"]["regime"] == "osno"
-    st = stub.put("/api/companies/S02/settings", headers=auth, json={"safety_cushion": 500000}).json()
+    st = stub.put(f"/api/companies/{cid}/settings", headers=auth, json={"safety_cushion": 500000}).json()
     assert st["safety_cushion"] == 500000 and st["safety_cushion_custom"] is True
-    f = stub.get("/api/companies/S02/forecast", headers=auth).json()
+    f = stub.get(f"/api/companies/{cid}/forecast", headers=auth).json()
     assert any("комфортного минимума" in w and "500" in w for w in f["warnings"])
-    st = stub.put("/api/companies/S02/settings", headers=auth, json={"safety_cushion": None}).json()
+    st = stub.put(f"/api/companies/{cid}/settings", headers=auth, json={"safety_cushion": None}).json()
     assert st["safety_cushion_custom"] is False
-    r = stub.put("/api/companies/S02/settings", headers=auth, json={"safety_cushion": -1})
+    r = stub.put(f"/api/companies/{cid}/settings", headers=auth, json={"safety_cushion": -1})
     assert r.status_code == 422
 
 
@@ -101,7 +105,7 @@ def test_upload_multi_company_needs_param(stub, auth):
 
 
 def test_contract_shapes(stub, auth):
-    cid = "S02"
+    cid = my_company(stub, auth)
     f = stub.get(f"/api/companies/{cid}/forecast?horizon=30", headers=auth)
     assert f.status_code == 200
     fr = ForecastResult.model_validate(f.json())
@@ -120,30 +124,32 @@ def test_contract_shapes(stub, auth):
 
 
 def test_scenario_validation_in_russian(stub, auth):
-    r = stub.post("/api/companies/S02/scenarios/run", headers=auth, json={"type": "client_delay", "params": {"weeks": 3}})
+    cid = my_company(stub, auth)
+    r = stub.post(f"/api/companies/{cid}/scenarios/run", headers=auth, json={"type": "client_delay", "params": {"weeks": 3}})
     assert r.status_code == 422 and "клиента" in r.json()["detail"]
-    r = stub.post("/api/companies/S02/scenarios/run", headers=auth, json={"type": "revenue_drop", "params": {"percent": 80}})
+    r = stub.post(f"/api/companies/{cid}/scenarios/run", headers=auth, json={"type": "revenue_drop", "params": {"percent": 80}})
     assert r.status_code == 422 and "от 10 до 30%" in r.json()["detail"]
-    r = stub.post("/api/companies/S02/scenarios/run", headers=auth, json={"type": "nope", "params": {}})
+    r = stub.post(f"/api/companies/{cid}/scenarios/run", headers=auth, json={"type": "nope", "params": {}})
     assert r.status_code == 422 and r.json()["detail"].startswith("Проверьте данные")
 
 
 def test_events_crud_and_parse(stub, auth):
+    cid = my_company(stub, auth)
     body = {"type": "manual", "direction": "in", "amount": 300000, "date": "2026-11-20", "source": "manual",
             "status": "expected", "counterparty": "ООО «Ромашка»", "note": "обещали"}
-    r = stub.post("/api/companies/S02/events", headers=auth, json=body)
+    r = stub.post(f"/api/companies/{cid}/events", headers=auth, json=body)
     assert r.status_code == 200, r.text
     ev = Event.model_validate(r.json())
     assert ev.id and ev.source == "manual"
-    assert any(e["id"] == ev.id for e in stub.get("/api/companies/S02/events", headers=auth).json())
-    r = stub.patch(f"/api/companies/S02/events/{ev.id}", headers=auth, json={"date": "2026-11-25"})
+    assert any(e["id"] == ev.id for e in stub.get(f"/api/companies/{cid}/events", headers=auth).json())
+    r = stub.patch(f"/api/companies/{cid}/events/{ev.id}", headers=auth, json={"date": "2026-11-25"})
     assert r.json()["date"] == "2026-11-25"
-    assert stub.delete(f"/api/companies/S02/events/{ev.id}", headers=auth).status_code == 204
-    assert stub.get(f"/api/companies/S02/events/{ev.id}", headers=auth).status_code == 404
+    assert stub.delete(f"/api/companies/{cid}/events/{ev.id}", headers=auth).status_code == 204
+    assert stub.get(f"/api/companies/{cid}/events/{ev.id}", headers=auth).status_code == 404
     bad = dict(body, amount=-5)
-    r = stub.post("/api/companies/S02/events", headers=auth, json=bad)
+    r = stub.post(f"/api/companies/{cid}/events", headers=auth, json=bad)
     assert r.status_code == 422 and "сумма" in r.json()["detail"]
-    r = stub.post("/api/companies/S02/events/parse?save=true", headers=auth,
+    r = stub.post(f"/api/companies/{cid}/events/parse?save=true", headers=auth,
                   json={"text": "клиент обещал заплатить 300 000 ₽ 20-го"})
     assert r.status_code == 200
     j = r.json()
@@ -152,52 +158,56 @@ def test_events_crud_and_parse(stub, auth):
 
 
 def test_sync_all_sources(stub, auth):
+    cid = my_company(stub, auth)
     for name in ("tax_calendar", "1c", "bank", "registry", "contracts", "invoices"):
-        r = stub.post(f"/api/companies/S02/integrations/{name}/sync", headers=auth)
+        r = stub.post(f"/api/companies/{cid}/integrations/{name}/sync", headers=auth)
         assert r.status_code == 200, (name, r.text)
         j = r.json()
         assert j["name"] == name and j["status"] == "ok" and "synced_at" in j and isinstance(j["events_added"], int)
-    events = stub.get("/api/companies/S02/events", headers=auth).json()
+    events = stub.get(f"/api/companies/{cid}/events", headers=auth).json()
     sources = {e["source"] for e in events}
     assert {"tax_calendar", "1c", "bank", "open_registry"} <= sources
     anchor = [e for e in events if e.get("counterparty") == "АО «ДонТрансЛогистика»" and e["status"] != "paid"]
     assert anchor and anchor[0]["status"] == "overdue" and "Риск задержки" in anchor[0]["note"]
-    assert stub.post("/api/companies/S02/integrations/nope/sync", headers=auth).status_code == 422
-    st = stub.get("/api/companies/S02/integrations", headers=auth).json()
+    assert stub.post(f"/api/companies/{cid}/integrations/nope/sync", headers=auth).status_code == 422
+    st = stub.get(f"/api/companies/{cid}/integrations", headers=auth).json()
     assert {x["name"] for x in st} >= {"tax_calendar", "1c", "bank", "registry", "contracts", "invoices", "manual"}
-    checks = stub.get("/api/companies/S02/counterparties/checks", headers=auth).json()
+    checks = stub.get(f"/api/companies/{cid}/counterparties/checks", headers=auth).json()
     assert any(c["risk_level"] == "high" for c in checks)
 
 
 def test_upload_source_file(stub, auth):
+    cid = my_company(stub, auth)
     csv_text = ("number;direction;counterparty_name;counterparty_inn;amount;issue_date;due_date;paid_amount;note\n"
                 "77;in;ООО «Новый клиент»;0012345678;150000;2026-10-10;2026-10-20;0;\n"
                 "78;out;ООО «Поставщик»;0087654321;90000;2026-10-20;2026-11-03;0;\n")
-    r = stub.post("/api/companies/S02/integrations/invoices/upload", headers=auth,
+    r = stub.post(f"/api/companies/{cid}/integrations/invoices/upload", headers=auth,
                   files={"file": ("inv.csv", csv_text.encode("utf-8"), "text/csv")})
     assert r.status_code == 200 and r.json()["events_added"] == 2
-    ev = {e["id"]: e for e in stub.get("/api/companies/S02/events", headers=auth).json()}
+    ev = {e["id"]: e for e in stub.get(f"/api/companies/{cid}/events", headers=auth).json()}
     statuses = sorted(e["status"] for e in ev.values() if (e.get("counterparty") or "").startswith("ООО «Новый"))
     assert statuses == ["overdue"]
-    r = stub.post("/api/companies/S02/integrations/1c/upload", headers=auth, files={"file": ("x.json", b"{bad", "application/json")})
+    r = stub.post(f"/api/companies/{cid}/integrations/1c/upload", headers=auth, files={"file": ("x.json", b"{bad", "application/json")})
     assert r.status_code == 400 and "Не удалось прочитать" in r.json()["detail"]
 
 
 def test_transactions_endpoint(stub, auth):
+    cid = my_company(stub, auth)
     rows = [{"date": "2026-10-26", "amount": 57900, "direction": "out", "counterparty_name": "ПАО «Банк»",
              "counterparty_inn": "0068275202", "purpose": "Погашение кредита", "balance_eod": 2463414.4},
             {"operation_date": "2026-10-26", "amount": "1 000,50", "direction": "Поступление", "counterparty_name": "ООО «А»"}]
-    r = stub.post("/api/companies/S02/transactions", headers=auth, json=rows)
+    r = stub.post(f"/api/companies/{cid}/transactions", headers=auth, json=rows)
     assert r.status_code == 200, r.text
     ForecastResult.model_validate(r.json())
-    r = stub.post("/api/companies/S02/transactions", headers=auth, json=[{"amount": 5}])
+    r = stub.post(f"/api/companies/{cid}/transactions", headers=auth, json=[{"amount": 5}])
     assert r.status_code == 422 and "Ни одна операция не принята" in r.json()["detail"]
-    assert stub.post("/api/companies/S02/transactions", headers=auth, json=[]).status_code == 400
+    assert stub.post(f"/api/companies/{cid}/transactions", headers=auth, json=[]).status_code == 400
 
 
 def test_no_jargon_in_sync_messages(stub, auth):
+    cid = stub.put("/api/me", headers=auth, json={"company_id": "S01"}).json()["company_id"]
     for name in ("tax_calendar", "1c", "bank", "registry", "contracts", "invoices"):
-        msg = stub.post(f"/api/companies/S01/integrations/{name}/sync", headers=auth).json().get("message", "")
+        msg = stub.post(f"/api/companies/{cid}/integrations/{name}/sync", headers=auth).json().get("message", "")
         assert not any(w in msg.lower() for w in ("мок", "post /", "json", "p50", "severity")), (name, msg)
 
 

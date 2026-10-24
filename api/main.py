@@ -63,6 +63,10 @@ async def lifespan(app: FastAPI):  # noqa: ANN201
     with new_session() as s:
         ensure_users(s)
     core = get_core()
+    from .demo import personalize_users  # noqa: PLC0415
+
+    with new_session() as s:
+        personalize_users(s)            # общие компании только для чтения: у demo — своя копия S02
     if get_settings().demo_warmup:
         from .demo import prepare_template  # noqa: PLC0415
 

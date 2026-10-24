@@ -42,6 +42,11 @@ def make_client(tmp_path: Path, stub: bool, **overrides) -> TestClient:
     return TestClient(create_app())
 
 
+def my_company(client: TestClient, headers: dict[str, str]) -> str:
+    """Компания пользователя: у demo это его личная копия S02 (общие компании только для чтения)."""
+    return client.get("/api/me", headers=headers).json()["company_id"]
+
+
 def login(client: TestClient, user: str = "demo", password: str | None = None) -> dict[str, str]:
     r = client.post("/api/auth/login", json={"username": user, "password": password or user})
     assert r.status_code == 200, r.text
