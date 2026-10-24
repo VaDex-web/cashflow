@@ -7,9 +7,10 @@
 | `core/` | Python-пакет `cashflow_core`: загрузка выписки, категории, регулярные платежи, налоги, прогноз, риски, сценарии, бэктест — [README](core/README.md) |
 | `api/` | FastAPI: JWT, эндпоинты по контракту, интеграции-имитации, план-факт, тесты — [README](api/README.md) |
 | `web/` | интерфейс: React + Vite + TypeScript + Recharts — [README](web/README.md) |
-| `docs/` | [контракт](docs/contract.md), [архитектура](docs/architecture.md), [аудит](docs/audit.md), [сценарий демо](docs/demo_script.md), презентация, моки |
+| `docs/` | [контракт](docs/contract.md), [архитектура](docs/architecture.md), [развёртывание](docs/deploy.md), [статус](docs/status.md), [аудит](docs/audit.md), [история демо](docs/demo_story.md), [сценарий выступления](docs/demo_script.md), [презентация](docs/presentation.pdf), скриншоты `docs/screens/` |
 | `data/raw/` | датасет организаторов — **не в git**: распаковать `cashflow_dataset_participants.zip` сюда |
 | `data/synthetic/` | наши демо-данные (компании S01–S05, источники, «как было на самом деле») |
+| `deploy/`, `docker-compose.yml`, `scripts/` | Caddy (HTTPS), запуск в Docker, smoke-тест, выписка «по дату» для демо |
 
 Контракт данных между частями — [`docs/contract.md`](docs/contract.md); изменения — только после согласования с тимлидом.
 
@@ -27,7 +28,7 @@ pip install -r api/requirements.txt && pip install -e core
 uvicorn api.main:app --port 8000          # http://localhost:8000/docs
 
 # 2. интерфейс (в другом терминале)
-cd web && npm ci && npm run dev           # http://localhost:5173, вход demo / demo
+cd web && npm ci && npm run dev           # http://localhost:5173 → «Посмотреть демо»
 ```
 
 ## Проверка
@@ -42,3 +43,13 @@ python -m cashflow_core.predict data/raw/all_operations.csv --horizon 30 --out p
 # качество прогноза на любом датасете в формате организаторов (бэктест rolling origin, 3 модели)
 python -m cashflow_core.evaluate data/raw --workers 4
 ```
+
+## Публичное развёртывание (Docker + HTTPS)
+
+```bash
+cp .env.example .env        # DOMAIN=<IP>.sslip.io или свой домен, JWT_SECRET=$(openssl rand -hex 32)
+docker compose up -d --build
+bash scripts/smoke_test.sh https://<DOMAIN>
+```
+
+Пошагово для чистой Ubuntu (Aeza): [`docs/deploy.md`](docs/deploy.md). Демо-вход в один клик — кнопка «Посмотреть демо»: у каждого гостя своя копия демо-компании с готовым прогнозом.
