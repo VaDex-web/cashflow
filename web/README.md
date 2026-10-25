@@ -13,6 +13,7 @@ npm run dev               # http://localhost:5173, нужен запущенны
 - **Реальный API** (по умолчанию): запросы `/api/*` Vite проксирует на `http://localhost:8000`
   (другой адрес — `API_URL=http://host:port npm run dev`). Токен JWT хранится в `localStorage` и уходит в `Authorization: Bearer`.
 - **Мок-режим** (`VITE_USE_MOCK=true`, только для разработки): данные из `../docs/mock/*.json`, вход — любой логин/пароль.
+- Адрес API для сборки — `VITE_API_URL` (пусто — тот же хост).
 - Метрики на странице «Качество прогноза» берутся из `../core/reports/metrics.json`, если файл есть; иначе — мок с пометкой «подставить».
 
 Сборка: `npm run build` → `dist/`.

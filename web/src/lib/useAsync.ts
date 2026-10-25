@@ -24,7 +24,6 @@ export function useAsync<T>(fn: () => Promise<T>, deps: unknown[]): AsyncState<T
       .catch((e: unknown) => { if (alive) setError(e instanceof Error ? e.message : String(e)) })
       .finally(() => { if (alive) setLoading(false) })
     return () => { alive = false }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [...deps, tick])
 
   const reload = useCallback(() => setTick((t) => t + 1), [])

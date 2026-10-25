@@ -1,21 +1,16 @@
-# Датасет организаторов — передаётся отдельно (архив cashflow_dataset_participants.zip → data/raw/)
 data/raw/
 
-# Python
 __pycache__/
 *.pyc
 .venv/
 venv/
 .pytest_cache/
 
-# Node
 node_modules/
 
-# Окружение и секреты
 .env
 .DS_Store
 
-# производные от датасета организаторов (scripts/make_demo_statement.py)
 data/demo/
 /predictions.csv
 /predictions.json

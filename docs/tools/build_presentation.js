@@ -30,7 +30,7 @@ const pres = new pptxgen()
 pres.layout = 'LAYOUT_16x9'
 pres.theme = { headFontFace: THEME.headFontFace, bodyFontFace: THEME.bodyFontFace }
 pres.title = 'Денежный прогноз — прогноз остатка и кассовых разрывов для малого бизнеса'
-pres.author = 'Команда «Денежный прогноз»'
+pres.author = 'Команда chikenbyrger'
 const C = pres.SchemeColor
 
 pres.defineSlideMaster({
@@ -150,7 +150,7 @@ const SRC_TAKEAWAY = 'На синтетической демо-компании 
   let s = pres.addSlide({ masterName: 'DARK', sectionTitle: 'Начало' })
   const logo = await sharp(path.join(ROOT, 'web/public/logo.svg'), { density: 600 }).resize(256, 256).png().toBuffer()
   s.addImage({ data: 'image/png;base64,' + logo.toString('base64'), x: 0.6, y: 0.7, w: 0.62, h: 0.62, objectName: 'logo' })
-  s.addText('Хакатон Банка Центр-Инвест', { x: 1.4, y: 0.75, w: 6, h: 0.5, fontSize: 14, color: 'A9C7B5', valign: 'middle', margin: 0, isTextBox: true, objectName: 'event' })
+  s.addText('Хакатон Банка Центр-Инвест · команда chikenbyrger', { x: 1.4, y: 0.75, w: 6, h: 0.5, fontSize: 14, color: 'A9C7B5', valign: 'middle', margin: 0, isTextBox: true, objectName: 'event' })
   s.addText('Денежный прогноз', { placeholder: 'title' })
   s.addText('Предупреждаем предпринимателя о кассовом разрыве заранее — и подсказываем, что сделать', { placeholder: 'body' })
   s.addNotes('Ведущий (10 с): Малый бизнес часто закрывается не из-за убытков, а потому что в нужный день на счёте нет денег. Мы сделали сервис, который заранее говорит: когда не хватит, сколько и что сделать.')
