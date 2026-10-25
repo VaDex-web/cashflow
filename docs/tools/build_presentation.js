@@ -5,11 +5,14 @@ const sharp = require('sharp')
 const React = require('react')
 const ReactDOMServer = require('react-dom/server')
 const fa = require('react-icons/fa6')
+const QRCode = require('qrcode')
+const JSZip = require('jszip')
 const { applyTheme } = require(process.env.PPTX_SKILL + '/scripts/apply_theme.js')
 
 const ROOT = process.argv[2]
 const SHOTS = path.join(ROOT, 'docs/screens')
 const OUT = path.join(ROOT, 'docs/presentation.pptx')
+const DEMO_URL = 'https://217.144.184.234.sslip.io/'
 
 const THEME = {
   name: 'Денежный прогноз',
@@ -91,6 +94,51 @@ function card(slide, x, y, w, h, fill = C.background2, name = 'card') {
   slide.addShape(pres.shapes.ROUNDED_RECTANGLE, { x, y, w, h, rectRadius: 0.1, fill: { color: fill }, line: { type: 'none' }, objectName: name })
 }
 const content = (section) => pres.addSlide({ masterName: 'CONTENT', sectionTitle: section })
+const num = (v, d) => v.toFixed(d).replace('.', ',')
+
+function chartTitle(slide, box, title, name) {
+  slide.addText(title, { x: box.x, y: box.y, w: box.w, h: 0.42, fontSize: 12, bold: true, color: C.text1, margin: 0, valign: 'top', isTextBox: true, objectName: name + ' title' })
+}
+function hbars(slide, box, { title, labels, values, colors, digits, name }) {
+  chartTitle(slide, box, title, name)
+  const top = box.y + 0.5, rowH = (box.h - 0.5) / labels.length
+  const labelW = 1.75, gap = 0.1, valueW = 0.55
+  const x0 = box.x + labelW + gap, maxW = box.w - labelW - gap - valueW
+  const max = Math.max(...values)
+  labels.forEach((label, i) => {
+    const y = top + i * rowH, barH = rowH * 0.62, by = y + (rowH - barH) / 2
+    const w = Math.max(0.04, maxW * values[i] / max)
+    slide.addText(label, { x: box.x, y, w: labelW, h: rowH, fontSize: 10, color: C.text2, align: 'right', valign: 'middle', margin: 0, isTextBox: true, objectName: `${name} label ${i}` })
+    slide.addShape(pres.shapes.RECTANGLE, { x: x0, y: by, w, h: barH, fill: { color: colors[i] }, line: { type: 'none' }, objectName: `${name} bar ${i}` })
+    slide.addText(num(values[i], digits), { x: x0 + w + 0.06, y, w: valueW, h: rowH, fontSize: 11, bold: true, color: C.text1, valign: 'middle', margin: 0, isTextBox: true, objectName: `${name} value ${i}` })
+  })
+}
+function vbars(slide, box, { title, labels, values, colors, digits, suffix, name }) {
+  chartTitle(slide, box, title, name)
+  const top = box.y + 0.75, labelH = 0.45, base = box.y + box.h - labelH
+  const colW = box.w / labels.length, barW = colW * 0.5, maxH = base - top
+  const max = Math.max(...values)
+  slide.addShape(pres.shapes.LINE, { x: box.x, y: base, w: box.w, h: 0, line: { color: HEX.border, width: 1 }, objectName: name + ' axis' })
+  labels.forEach((label, i) => {
+    const h = Math.max(0.04, maxH * values[i] / max), x = box.x + i * colW + (colW - barW) / 2
+    slide.addShape(pres.shapes.RECTANGLE, { x, y: base - h, w: barW, h, fill: { color: colors[i] }, line: { type: 'none' }, objectName: `${name} bar ${i}` })
+    slide.addText(num(values[i], digits) + suffix, { x: box.x + i * colW, y: base - h - 0.3, w: colW, h: 0.28, fontSize: 12, bold: true, color: C.text1, align: 'center', margin: 0, isTextBox: true, objectName: `${name} value ${i}` })
+    slide.addText(label, { x: box.x + i * colW + 0.03, y: base + 0.04, w: colW - 0.06, h: labelH - 0.04, fontSize: 10, color: C.text2, align: 'center', valign: 'top', margin: 0, isTextBox: true, objectName: `${name} label ${i}` })
+  })
+}
+async function stripUnusedTypes(file) {
+  const zip = await JSZip.loadAsync(fs.readFileSync(file))
+  const used = new Set(Object.keys(zip.files).filter((f) => !zip.files[f].dir).map((f) => f.split('.').pop().toLowerCase()))
+  const ct = await zip.file('[Content_Types].xml').async('string')
+  const out = ct.replace(/<Default Extension="([^"]+)"[^>]*\/>/g, (m, ext) => (used.has(ext.toLowerCase()) ? m : ''))
+  const clean = new JSZip()
+  clean.file('[Content_Types].xml', out, { createFolders: false })
+  for (const name of Object.keys(zip.files)) {
+    if (zip.files[name].dir || name === '[Content_Types].xml') continue
+    clean.file(name, await zip.file(name).async('uint8array'), { createFolders: false })
+  }
+  fs.writeFileSync(file, await clean.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' }))
+}
 
 const Q = { mae: '13,1', maeFlat: '13,3', maeNaive: 21.5, maeEts: 19.0, maeVal: 13.1, maeFlatVal: 13.3, wape: '0,263', wapeFlat: '0,253',
   better: 61, cov: 81, recall: 61, precision: 70, lead: 12, n: 73, forecasts: 542, ctlWape: '0,235', ctlWapeFlat: '0,231', ctlBetter: 54 }
@@ -188,12 +236,9 @@ const SRC_TAKEAWAY = 'На синтетической демо-компании 
     s.addText(src[i][1], { x: 1.15, y, w: 3.4, h: 0.26, fontSize: 13, bold: true, color: C.text1, margin: 0, isTextBox: true, objectName: 'source name ' + i })
     s.addText(src[i][2], { x: 1.15, y: y + 0.27, w: 3.4, h: 0.5, fontSize: 11, color: C.text2, margin: 0, valign: 'top', isTextBox: true, objectName: 'source text ' + i })
   }
-  s.addChart(pres.charts.BAR, [{ name: 'Ошибка прогноза, млн ₽', labels: SRC_LABELS, values: SRC_VALUES }], {
-    x: 4.9, y: 1.1, w: 4.6, h: 3.2, barDir: 'bar', chartColors: ['7A8A80', '7A8A80', '11553F', '11553F', '8DC63F'],
-    showTitle: true, title: 'Ошибка остатка на 30 дней, млн ₽ (синтетическая демо-компания S02)', titleFontSize: 12, titleColor: HEX.text, titleFontFace: '+mn-lt',
-    showValue: true, dataLabelPosition: 'outEnd', dataLabelFormatCode: '0.00', dataLabelFontSize: 11, dataLabelColor: HEX.text, dataLabelFontFace: '+mn-lt',
-    catAxisLabelColor: HEX.text2, catAxisLabelFontSize: 10, catAxisLabelFontFace: '+mn-lt', catAxisOrientation: 'maxMin',
-    valAxisHidden: true, valGridLine: { style: 'none' }, catGridLine: { style: 'none' }, showLegend: false, varyColors: true, objectName: 'sources chart',
+  hbars(s, { x: 4.9, y: 1.1, w: 4.6, h: 3.2 }, {
+    title: 'Ошибка остатка на 30 дней, млн ₽ (синтетическая демо-компания S02)', labels: SRC_LABELS, values: SRC_VALUES,
+    colors: ['7A8A80', '7A8A80', '11553F', '11553F', '8DC63F'], digits: 2, name: 'sources chart',
   })
   s.addText(SRC_TAKEAWAY, { x: 4.9, y: 4.35, w: 4.6, h: 0.7, fontSize: 12, bold: true, color: C.text2, margin: 0, valign: 'top', isTextBox: true, objectName: 'sources takeaway' })
   s.addNotes('Ведущий (20 с): Это наша синтетическая компания с известным будущим (api/reports/sources_effect.md). Честно: работает частично — налоговый календарь считается по выписке, банк и 1С — на тестовых выгрузках, реестры — демонстрационная проверка по ИНН.')
@@ -226,12 +271,10 @@ const SRC_TAKEAWAY = 'На синтетической демо-компании 
   stat(s, 0.5, 1.15, 2.9, Q.better + '%', 'компаний: прогноз точнее, чем «остаток не изменится»', C.accent2, 'better')
   stat(s, 0.5, 2.45, 2.9, Q.mae + '%', 'ошибка фактического остатка, медиана в долях оборота; у бейзлайна ' + Q.maeFlat + '%', C.accent2, 'mae')
   stat(s, 0.5, 3.75, 2.9, Q.recall + '%', 'разрывов найдено заранее (точность ' + Q.precision + '%), в среднем за ' + Q.lead + ' дней', C.accent3, 'recall')
-  s.addChart(pres.charts.BAR, [{ name: 'Ошибка остатка, % оборота', labels: ['Остаток не изменится', 'Наивная (повтор 28 дней)', 'Сезонная (ETS)', 'Наш прогноз'], values: [Q.maeFlatVal, Q.maeNaive, Q.maeEts, Q.maeVal] }], {
-    x: 3.7, y: 1.1, w: 5.8, h: 2.75, barDir: 'col', chartColors: ['7A8A80', '7A8A80', '7A8A80', '11553F'], varyColors: true,
-    showTitle: true, title: 'Ошибка фактического остатка, % месячного оборота (меньше — лучше)', titleFontSize: 12, titleColor: HEX.text, titleFontFace: '+mn-lt',
-    showValue: true, dataLabelPosition: 'outEnd', dataLabelFormatCode: '0.0"%"', dataLabelFontSize: 12, dataLabelColor: HEX.text, dataLabelFontFace: '+mn-lt',
-    catAxisLabelColor: HEX.text2, catAxisLabelFontSize: 10, catAxisLabelFontFace: '+mn-lt', valAxisHidden: true, valAxisMinVal: 0,
-    valGridLine: { style: 'none' }, catGridLine: { style: 'none' }, showLegend: false, objectName: 'models chart',
+  vbars(s, { x: 3.7, y: 1.1, w: 5.8, h: 2.75 }, {
+    title: 'Ошибка фактического остатка, % месячного оборота (меньше — лучше)',
+    labels: ['Остаток не изменится', 'Наивная (повтор 28 дней)', 'Сезонная (ETS)', 'Наш прогноз'],
+    values: [Q.maeFlatVal, Q.maeNaive, Q.maeEts, Q.maeVal], colors: ['7A8A80', '7A8A80', '7A8A80', '11553F'], digits: 1, suffix: '%', name: 'models chart',
   })
   card(s, 3.7, 3.95, 5.8, 1.1, C.background2, 'method card')
   s.addText(`Честно: общий WAPE на ${Q.n} отложенных компаниях — ${Q.wape} против ${Q.wapeFlat} у «остаток не изменится», чуть хуже; за последние 30 дней всех 150 выписок — ${Q.ctlWape} против ${Q.ctlWapeFlat}. Поэтому прогноз — смесь модели с бейзлайном. Параметры подбирались только на dev, цифры — holdout, ${Q.forecasts} прогнозов на модель.`, { x: 3.85, y: 4.0, w: 5.5, h: 1.0, fontSize: 10.5, color: C.text1, margin: 0, valign: 'middle', isTextBox: true, objectName: 'method text' })
@@ -243,7 +286,7 @@ const SRC_TAKEAWAY = 'На синтетической демо-компании 
   const am = await sharp(path.join(ROOT, 'docs/architecture_slide.png')).metadata()
   const ah = 3.0, aww = ah * am.width / am.height
   s.addImage({ path: path.join(ROOT, 'docs/architecture_slide.png'), x: 0.5, y: 1.15, w: aww, h: ah, objectName: 'architecture diagram' })
-  const sec = [[fa.FaKey, 'JWT, пароли PBKDF2'], [fa.FaUserShield, 'общие компании — только чтение, у гостя своя копия (тест)'], [fa.FaEyeSlash, 'в логах нет ИНН, сумм, названий, токенов (тест)'], [fa.FaGaugeHigh, 'лимит запросов и размера файла'], [fa.FaLock, 'HTTPS: Caddy + docker compose, готово к запуску']]
+  const sec = [[fa.FaKey, 'JWT, пароли PBKDF2'], [fa.FaUserShield, 'общие компании — только чтение, у гостя своя копия (тест)'], [fa.FaEyeSlash, 'в логах нет ИНН, сумм, названий, токенов (тест)'], [fa.FaGaugeHigh, 'лимит запросов и размера файла'], [fa.FaLock, 'HTTPS: Caddy + docker compose, развёрнуто на VPS']]
   const sx = 0.5 + aww + 0.3, sw = 9.5 - sx
   for (let i = 0; i < sec.length; i++) {
     const y = 1.15 + i * 0.62
@@ -279,9 +322,18 @@ const SRC_TAKEAWAY = 'На синтетической демо-компании 
   s = pres.addSlide({ masterName: 'DARK', sectionTitle: 'Итоги' })
   s.addText('Предупреждаем о разрыве заранее и говорим, что делать', { placeholder: 'title' })
   s.addText(`Прогноз на 30+ дней по дням · дата, сумма и вероятность разрыва · точнее «остаток не изменится» у ${Q.better}% компаний · реальный разрыв 30.09.2025 — за 14 дней`, { placeholder: 'body' })
+  const qr = await QRCode.toBuffer(DEMO_URL, { errorCorrectionLevel: 'M', margin: 2, width: 600, color: { dark: '#0B3D2E', light: '#FFFFFF' } })
+  s.addShape(pres.shapes.ROUNDED_RECTANGLE, { x: 8.15, y: 4.2, w: 1.25, h: 1.25, rectRadius: 0.08, fill: { color: C.background1 }, line: { type: 'none' }, objectName: 'qr card' })
+  s.addImage({ data: 'image/png;base64,' + qr.toString('base64'), x: 8.2, y: 4.25, w: 1.15, h: 1.15, objectName: 'qr prototype', altText: 'QR-код: ' + DEMO_URL })
+  s.addText([
+    { text: 'Прототип: ', options: { bold: true, color: C.background1 } },
+    { text: DEMO_URL.replace(/\/$/, ''), options: { color: C.background1, hyperlink: { url: DEMO_URL } } },
+    { text: ' → «Посмотреть демо»', options: { color: 'CFE2D6' } },
+  ], { x: 0.6, y: 4.55, w: 7.4, h: 0.6, fontSize: 14, valign: 'middle', margin: 0, isTextBox: true, objectName: 'prototype link' })
   s.addNotes('Ведущий (10 с): Спасибо! Готовы ответить на вопросы.')
 
   await pres.writeFile({ fileName: OUT })
   await applyTheme(OUT, THEME)
+  await stripUnusedTypes(OUT)
   console.log('written', OUT)
 })().catch((e) => { console.error(e); process.exit(1) })
